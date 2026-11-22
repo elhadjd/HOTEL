@@ -5,6 +5,16 @@ import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
+function postLoginPath(mustChangePassword: boolean): string {
+  if (mustChangePassword) return "/set-password";
+  if (typeof window === "undefined") return "/dashboard";
+  const raw = new URLSearchParams(window.location.search).get("callbackUrl");
+  if (raw && raw.startsWith("/") && !raw.startsWith("//") && !raw.startsWith("/login")) {
+    return raw;
+  }
+  return "/dashboard";
+}
+
 export function LoginForm({
   labels,
 }: {
@@ -46,8 +56,7 @@ export function LoginForm({
       }
 
       // Hard navigation so the new session cookie is always picked up by middleware
-      const next = session.user.mustChangePassword ? "/set-password" : "/dashboard";
-      window.location.assign(next);
+      window.location.assign(postLoginPath(Boolean(session.user.mustChangePassword)));
     });
   }
 

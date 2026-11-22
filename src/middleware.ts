@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import createMiddleware from "next-intl/middleware";
-import { getToken } from "next-auth/jwt";
 import { routing } from "./i18n/routing";
+import { getAuthSessionToken } from "./server/auth-session-token";
 
 const intlMiddleware = createMiddleware(routing);
 
@@ -26,6 +26,13 @@ function localePrefix(pathname: string): string {
   return match ? `/${match[1]}` : "";
 }
 
+function safeCallbackPath(raw: string | null): string | null {
+  if (!raw) return null;
+  if (!raw.startsWith("/") || raw.startsWith("//")) return null;
+  if (raw.startsWith("/login") || raw.startsWith("/api")) return null;
+  return raw;
+}
+
 export default async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -40,11 +47,7 @@ export default async function middleware(request: NextRequest) {
     path === "/" ||
     PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
 
-  const token = await getToken({
-    req: request,
-    secret: process.env.AUTH_SECRET,
-  });
-
+  const token = await getAuthSessionToken(request);
   const mustChange = Boolean(token?.mustChangePassword);
 
   if (token?.sub && mustChange && path !== "/set-password" && !path.startsWith("/api")) {
@@ -65,7 +68,9 @@ export default async function middleware(request: NextRequest) {
 
   if (token?.sub && !mustChange && (path === "/login" || path === "/set-password")) {
     const url = request.nextUrl.clone();
-    url.pathname = `${prefix}/dashboard`;
+    const callback = safeCallbackPath(url.searchParams.get("callbackUrl"));
+    url.pathname = callback ?? `${prefix}/dashboard`;
+    url.search = "";
     return NextResponse.redirect(url);
   }
 
