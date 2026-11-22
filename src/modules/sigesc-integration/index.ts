@@ -22,4 +22,16 @@ export {
   resetMockCustomerStore,
 } from "./mock-adapter";
 
-export { connectAggregateAccount, fingerprintKeyForLog } from "./onboarding-service";
+export {
+  connectAggregateAccount,
+  confirmOnboardingChallenge,
+  fingerprintKeyForLog,
+  validateOnboardingKey,
+} from "./onboarding-service";
+export type { ConfirmOnboardingResult, OnboardingPreview } from "./onboarding-service";
+export {
+  identifyAuthorizedAdministrator,
+  isAggregateAdmin,
+  toPublicAdminPreview,
+  toPublicCompanyPreview,
+} from "./admin-identification";

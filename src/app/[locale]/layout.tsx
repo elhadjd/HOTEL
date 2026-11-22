@@ -3,8 +3,10 @@ import { Libre_Baskerville, Source_Sans_3 } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
+import { Providers } from "@/components/providers";
 import { routing } from "@/i18n/routing";
 import "../globals.css";
+
 
 const display = Libre_Baskerville({
   subsets: ["latin"],
@@ -44,7 +46,10 @@ export default async function LocaleLayout({
   return (
     <html lang={locale}>
       <body className={`${display.variable} ${ui.variable} antialiased`}>
-        <NextIntlClientProvider messages={messages}>{children}</NextIntlClientProvider>
+        <NextIntlClientProvider messages={messages}>
+          <Providers>{children}</Providers>
+        </NextIntlClientProvider>
+
       </body>
     </html>
   );

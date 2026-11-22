@@ -73,13 +73,16 @@ Never accept `company_id` / `institutionId` from the client as authoritative.
 
 ## 6. Application security checklist
 
-- [ ] Env validation with Zod at boot  
-- [ ] CSRF protection for cookie sessions (Auth.js defaults)  
-- [ ] Rate limiting on `/api/v1/auth/*` and `/api/v1/onboarding/*`  
+- [x] Env validation with Zod at boot  
+- [x] CSRF protection for cookie sessions (Auth.js defaults)  
+- [x] Rate limiting on `/api/v1/auth/*` and `/api/v1/onboarding/*` (Phase 2)  
 - [ ] Secure file upload pipeline (Phase 3+) — type/size/virus policy  
-- [ ] Structured logging without PII/secrets  
-- [ ] AuditLog on auth, RBAC changes, Aggregate connect, reservation mutations  
-- [ ] Secure error responses (no stack traces to clients)  
+- [x] Structured logging without PII/secrets (temp passwords / reset tokens excluded)  
+- [x] AuditLog on auth, RBAC changes, Aggregate connect, reservation mutations  
+- [x] Secure error responses (no stack traces to clients)  
+- [x] Forced first-login password change (`mustChangePassword`)  
+- [x] Password recovery with hashed single-use tokens + generic responses  
+- [x] Email outbox post-commit dispatch (secrets encrypted at rest)  
 
 ---
 
