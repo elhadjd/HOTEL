@@ -12,6 +12,8 @@ const credentialsSchema = z.object({
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
+  // Required behind reverse proxies / PM2 so the session cookie is set correctly
+  trustHost: true,
   session: { strategy: "jwt" },
   pages: {
     signIn: "/login",
@@ -76,40 +78,37 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.institutionId = (user as { institutionId?: string }).institutionId;
       }
 
-      if (token.sub) {
-        // Refresh security flags / revoke via sessionVersion
-        const dbUser = await prisma.user.findUnique({
-          where: { id: token.sub },
-          select: {
-            active: true,
-            mustChangePassword: true,
-            sessionVersion: true,
-          },
-        });
-        if (!dbUser || !dbUser.active) {
-          return { ...token, sub: undefined };
-        }
-        if (
-          typeof token.sessionVersion === "number" &&
-          dbUser.sessionVersion !== token.sessionVersion
-        ) {
-          return { ...token, sub: undefined };
-        }
+      if (!token.sub) return token;
+
+      const dbUser = await prisma.user.findUnique({
+        where: { id: token.sub },
+        select: {
+          active: true,
+          mustChangePassword: true,
+          sessionVersion: true,
+        },
+      });
+      if (!dbUser || !dbUser.active) {
+        return { ...token, sub: undefined };
+      }
+
+      // After password change the client calls session.update() — adopt the new
+      // sessionVersion instead of treating this device as revoked.
+      if (trigger === "update") {
         token.mustChangePassword = dbUser.mustChangePassword;
         token.sessionVersion = dbUser.sessionVersion;
+        return token;
       }
 
-      if (trigger === "update" && token.sub) {
-        const dbUser = await prisma.user.findUnique({
-          where: { id: token.sub },
-          select: { mustChangePassword: true, sessionVersion: true },
-        });
-        if (dbUser) {
-          token.mustChangePassword = dbUser.mustChangePassword;
-          token.sessionVersion = dbUser.sessionVersion;
-        }
+      if (
+        typeof token.sessionVersion === "number" &&
+        dbUser.sessionVersion !== token.sessionVersion
+      ) {
+        return { ...token, sub: undefined };
       }
 
+      token.mustChangePassword = dbUser.mustChangePassword;
+      token.sessionVersion = dbUser.sessionVersion;
       return token;
     },
     async session({ session, token }) {
