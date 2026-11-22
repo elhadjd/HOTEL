@@ -38,6 +38,22 @@ enum AggregateSyncKind {
   KEY_ROTATION
   CUSTOMERS
   PRODUCTS
+  SALES
+}
+
+enum InvoiceIntegrationStatus {
+  DRAFT
+  PENDING_SUBMISSION
+  SUBMITTING
+  CREATED
+  RECONCILIATION_REQUIRED
+  FAILED_VALIDATION
+  FAILED_FINAL
+}
+
+enum CatalogKind {
+  PRODUCT
+  SERVICE
 }
 
 enum AggregateSyncOutcome {
@@ -173,8 +189,10 @@ model Institution {
   aggregateConnection AggregateConnection?
   aggregateSyncRuns   AggregateSyncRun[]
   notifications       Notification[]
-  emailOutbox         EmailOutbox[]
+  emailOutbox          EmailOutbox[]
   onboardingChallenges OnboardingChallenge[]
+  productCatalogMaps   ProductCatalogMapping[]
+  invoiceIntegrations  InvoiceIntegration[]
 
   @@map("institutions")
 }
@@ -551,6 +569,7 @@ model GuestCustomerMapping {
   id                 String             @id @default(uuid())
   guestId            String             @unique @map("guest_id")
   institutionId      String             @map("institution_id")
+  connectionId       String?            @map("connection_id")
   externalCustomerId String?            @map("external_customer_id") @db.VarChar(128)
   companyId          String?            @map("company_id") @db.VarChar(64)
   syncStatus         CustomerSyncStatus @default(UNLINKED) @map("sync_status")
@@ -561,9 +580,101 @@ model GuestCustomerMapping {
 
   guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
 
+  @@unique([institutionId, externalCustomerId])
   @@index([institutionId, syncStatus])
   @@index([externalCustomerId])
   @@map("guest_customer_mappings")
+}
+
+/** Local operational service/catalog entry mapped to a central SIGESC product. */
+model ProductCatalogMapping {
+  id                     String      @id @default(uuid())
+  institutionId          String      @map("institution_id")
+  connectionId           String?     @map("connection_id")
+  localCode              String      @map("local_code") @db.VarChar(64)
+  localLabel             String      @map("local_label") @db.VarChar(255)
+  localOperationalPrice  Decimal?    @map("local_operational_price") @db.Decimal(14, 2)
+  kind                   CatalogKind @default(SERVICE)
+  centralProductId       String      @map("central_product_id") @db.VarChar(64)
+  centralCompanyId       String      @map("central_company_id") @db.VarChar(64)
+  centralName            String?     @map("central_name") @db.VarChar(255)
+  centralSalePrice       Decimal?    @map("central_sale_price") @db.Decimal(14, 2)
+  centralTaxPercent      Decimal?    @map("central_tax_percent") @db.Decimal(8, 4)
+  active                 Boolean     @default(true)
+  lastSyncedAt           DateTime?   @map("last_synced_at")
+  lastError              String?     @map("last_error") @db.Text
+  createdAt              DateTime    @default(now()) @map("created_at")
+  updatedAt              DateTime    @updatedAt @map("updated_at")
+
+  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+
+  @@unique([institutionId, localCode])
+  @@index([institutionId, centralProductId])
+  @@index([institutionId, active])
+  @@map("product_catalog_mappings")
+}
+
+/**
+ * Local record of a Cotação/Proforma submission to Aggregate.
+ * externalId is the idempotency key — never regenerate after ambiguous timeout.
+ */
+model InvoiceIntegration {
+  id                   String                   @id @default(uuid())
+  institutionId        String                   @map("institution_id")
+  connectionId         String                   @map("connection_id")
+  reservationId        String?                  @map("reservation_id")
+  guestId              String?                  @map("guest_id")
+  externalId           String                   @map("external_id") @db.VarChar(128)
+  partner              String                   @default("sigesc_hotelaria") @db.VarChar(64)
+  requestedState       String                   @map("requested_state") @db.VarChar(32)
+  status               InvoiceIntegrationStatus @default(DRAFT)
+  centralCompanyId     String                   @map("central_company_id") @db.VarChar(64)
+  centralCustomerId    String?                  @map("central_customer_id") @db.VarChar(64)
+  centralSaleId        String?                  @map("central_sale_id") @db.VarChar(64)
+  saleKey              String?                  @map("sale_key") @db.VarChar(64)
+  orderReference       String?                  @map("order_reference") @db.VarChar(128)
+  centralState         String?                  @map("central_state") @db.VarChar(32)
+  centralTotal         Decimal?                 @map("central_total") @db.Decimal(14, 2)
+  centralSubtotal      Decimal?                 @map("central_subtotal") @db.Decimal(14, 2)
+  centralTax           Decimal?                 @map("central_tax") @db.Decimal(14, 2)
+  centralRestPayable   Decimal?                 @map("central_rest_payable") @db.Decimal(14, 2)
+  currency             String                   @default("AOA") @db.Char(3)
+  notes                String?                  @db.Text
+  /** Non-secret line snapshot for audit (product ids, qty, prices) */
+  linesJson            Json                     @map("lines_json")
+  idempotentHit        Boolean                  @default(false) @map("idempotent_hit")
+  lastError            String?                  @map("last_error") @db.Text
+  submittedAt          DateTime?                @map("submitted_at")
+  createdAt            DateTime                 @default(now()) @map("created_at")
+  updatedAt            DateTime                 @updatedAt @map("updated_at")
+
+  institution Institution                 @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  attempts    InvoiceSubmissionAttempt[]
+
+  @@unique([institutionId, externalId])
+  @@index([institutionId, status])
+  @@index([saleKey])
+  @@index([reservationId])
+  @@map("invoice_integrations")
+}
+
+model InvoiceSubmissionAttempt {
+  id              String   @id @default(uuid())
+  invoiceId       String   @map("invoice_id")
+  attemptNo       Int      @map("attempt_no")
+  outcome         String   @db.VarChar(64)
+  httpStatus      Int?     @map("http_status")
+  remoteSaleKey   String?  @map("remote_sale_key") @db.VarChar(64)
+  /** Sanitized remote summary — never credentials */
+  responseSummary Json?    @map("response_summary")
+  errorMessage    String?  @map("error_message") @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  invoice InvoiceIntegration @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceId, attemptNo])
+  @@index([invoiceId, createdAt])
+  @@map("invoice_submission_attempts")
 }
 
 // ─── Reservations & stays ────────────────────────────────────────────────────

@@ -7,6 +7,15 @@ import type {
   AggregateEnvelope,
   AggregateOnboardingData,
   AggregateOnboardingQuery,
+  AggregateProduct,
+  AggregateProductMutationResult,
+  AggregateProductsQuery,
+  AggregateProductWriteInput,
+  AggregateSale,
+  AggregateSaleCreateInput,
+  AggregateSaleItemInput,
+  AggregateSaleMutationResult,
+  AggregateSalesQuery,
   AggregateUser,
   AggregateUsersQuery,
 } from "./types";
@@ -151,8 +160,69 @@ export const MOCK_CUSTOMERS_FIXTURE: AggregateCustomer[] = [
   },
 ];
 
+export const MOCK_PRODUCTS_FIXTURE: AggregateProduct[] = [
+  {
+    id: 901,
+    company_id: 44,
+    name: "Diária Standard",
+    description: "Alojamento noite standard",
+    code: "HOT-STAY",
+    status: "active",
+    sale_price: 45000,
+    sale_price_ex_tax: 45000,
+    tax_percent: 0,
+    is_sellable: true,
+    inventory: false,
+    unit_of_measure: "noite",
+    product_type: { id: 2, name: "Serviço" },
+    kind: "service",
+    stock_quantity: 0,
+  },
+  {
+    id: 902,
+    company_id: 44,
+    name: "Pequeno-almoço",
+    description: "Buffet pequeno-almoço",
+    code: "HOT-BFST",
+    status: "active",
+    sale_price: 3500,
+    sale_price_ex_tax: 3500,
+    tax_percent: 0,
+    is_sellable: true,
+    inventory: false,
+    unit_of_measure: "un",
+    product_type: { id: 2, name: "Serviço" },
+    kind: "service",
+    stock_quantity: 0,
+  },
+  {
+    id: 903,
+    company_id: 44,
+    name: "Água mineral 1.5L",
+    description: "Produto minibar",
+    code: "HOT-WATER",
+    barcode: "5600000000001",
+    status: "active",
+    sale_price: 500,
+    purchase_price: 200,
+    tax_percent: 0,
+    is_sellable: true,
+    inventory: true,
+    unit_of_measure: "un",
+    product_type: { id: 1, name: "Artigo armagenavel" },
+    kind: "product",
+    stock_quantity: 48,
+  },
+];
+
 let mockCustomerSeq = 600;
 const mockCustomerStore: AggregateCustomer[] = structuredClone(MOCK_CUSTOMERS_FIXTURE);
+let mockProductSeq = 1000;
+const mockProductStore: AggregateProduct[] = structuredClone(MOCK_PRODUCTS_FIXTURE);
+let mockSaleSeq = 100;
+const mockSaleStore: AggregateSale[] = [];
+/** external_id → sale id */
+const mockSaleByExternal = new Map<string, number>();
 
 export function resetMockCustomerStore(): void {
   mockCustomerStore.length = 0;
@@ -160,7 +230,27 @@ export function resetMockCustomerStore(): void {
   mockCustomerSeq = 600;
 }
 
-function authorize(apiKey: string, need: "onboarding" | "users" | "customers"): void {
+export function resetMockProductStore(): void {
+  mockProductStore.length = 0;
+  mockProductStore.push(...structuredClone(MOCK_PRODUCTS_FIXTURE));
+  mockProductSeq = 1000;
+}
+
+export function resetMockSaleStore(): void {
+  mockSaleStore.length = 0;
+  mockSaleByExternal.clear();
+  mockSaleSeq = 100;
+}
+
+export function resetAllMockAggregateStores(): void {
+  resetMockCustomerStore();
+  resetMockProductStore();
+  resetMockSaleStore();
+}
+
+type ScopeNeed = "onboarding" | "users" | "customers" | "products" | "sales";
+
+function authorize(apiKey: string, need: ScopeNeed): void {
   const key = apiKey.trim();
   if (!key || key === MOCK_REVOKED) {
     throw new AggregateApiError("Unauthorized: key missing, invalid or revoked", 401, 401);
@@ -178,6 +268,152 @@ function authorize(apiKey: string, need: "onboarding" | "users" | "customers"): 
   if (key !== MOCK_KEY) {
     throw new AggregateApiError("Unauthorized: invalid Aggregate key", 401, 401);
   }
+}
+
+function isServiceProduct(p: AggregateProduct): boolean {
+  const kind = (p.kind ?? "").toLowerCase();
+  if (kind === "service" || kind === "servico") return true;
+  if (kind === "product" || kind === "pharmacy" || kind === "produto") return false;
+  const typeName =
+    typeof p.product_type === "string"
+      ? p.product_type
+      : (p.product_type?.name ?? "");
+  return /servi[cç]o/i.test(typeName);
+}
+
+function assertCompanyLinked(companyId: number | string | undefined): number {
+  if (companyId === undefined || companyId === null || companyId === "") {
+    throw new AggregateApiError(
+      "company_id is required and must be linked to this Aggregate key",
+      422,
+      422,
+    );
+  }
+  const id = Number(companyId);
+  if (id !== 44) {
+    throw new AggregateApiError("company_id is not linked to this key", 422, 422);
+  }
+  return id;
+}
+
+function normalizeSaleState(raw?: string): string {
+  if (!raw) return "Cotação";
+  const s = raw.trim().toLowerCase();
+  if (s === "cotação" || s === "cotacao" || s === "draft" || s === "quote") return "Cotação";
+  if (s === "proforma") return "Proforma";
+  if (s === "publicado" || s === "pago" || s === "published" || s === "paid") {
+    throw new AggregateApiError(
+      "API create only allows Cotação or Proforma. Publish and pay inside SIGESC.",
+      422,
+      422,
+    );
+  }
+  throw new AggregateApiError(
+    "API create only allows Cotação or Proforma. Publish and pay inside SIGESC.",
+    422,
+    422,
+  );
+}
+
+function resolveSaleItems(body: AggregateSaleCreateInput): AggregateSaleItemInput[] {
+  const items = body.items ?? body.lines ?? [];
+  if ((!items || items.length === 0) && !body.allow_empty_items) {
+    throw new AggregateApiError(
+      "At least one item is required. List catalog with GET /products first.",
+      422,
+      422,
+    );
+  }
+  return items;
+}
+
+function buildSaleFromInput(body: AggregateSaleCreateInput, saleId: number): AggregateSale {
+  const companyId = assertCompanyLinked(body.company_id);
+  const state = normalizeSaleState(body.state);
+  const itemsIn = resolveSaleItems(body);
+  const saleItems = itemsIn.map((raw, idx) => {
+    const productId = Number(raw.product_id ?? raw.id ?? raw.produtos_id);
+    const product = mockProductStore.find((p) => p.id === productId && p.company_id === companyId);
+    if (!product) {
+      throw new AggregateApiError(
+        `Product #${productId} not found for this company. List catalog with GET /products first.`,
+        422,
+        422,
+      );
+    }
+    const quantity = Number(raw.quantity ?? raw.qty ?? 1);
+    const unitPrice = Number(
+      raw.unit_price ?? raw.price ?? raw.sale_price ?? product.sale_price ?? 0,
+    );
+    const discount = Number(raw.discount ?? 0);
+    const taxPercent = Number(product.tax_percent ?? 0);
+    const net = unitPrice * quantity - discount;
+    const taxAmount = net * (taxPercent / 100);
+    return {
+      id: idx + 1,
+      quantity,
+      unit_price: unitPrice,
+      discount,
+      tax_percent: taxPercent,
+      tax_amount: taxAmount,
+      line_total: net + taxAmount,
+      product: {
+        id: product.id,
+        name: product.name,
+        code: product.code ?? undefined,
+        sale_price: product.sale_price ?? undefined,
+      },
+    };
+  });
+
+  const subtotal = saleItems.reduce(
+    (acc, i) => acc + (i.unit_price * i.quantity - i.discount),
+    0,
+  );
+  const tax = saleItems.reduce((acc, i) => acc + i.tax_amount, 0);
+  const total = subtotal + tax;
+
+  const customerId = body.customer_id ?? body.costumer_id;
+  let customerName = body.customer_name ?? body.customer?.name;
+  let customerEmail = body.customer_email ?? body.customer?.email;
+  if (customerId) {
+    const existing = mockCustomerStore.find(
+      (c) => c.id === Number(customerId) && c.company_id === companyId,
+    );
+    if (!existing) {
+      throw new AggregateApiError("Customer not found for this company.", 422, 422);
+    }
+    customerName = existing.full_name ?? existing.name;
+    customerEmail = existing.email ?? undefined;
+  }
+
+  const externalId = body.external_id ?? body.external_reference ?? null;
+
+  return {
+    id: saleId,
+    sale_key: `billing-${saleId}`,
+    source: "billing",
+    company_id: companyId,
+    order_reference: externalId,
+    state,
+    total,
+    subtotal,
+    tax,
+    rest_payable: total,
+    date: body.date ?? body.document_date ?? body.date_order ?? new Date().toISOString().slice(0, 10),
+    date_due: body.date_due ?? body.date ?? new Date().toISOString().slice(0, 10),
+    customer: customerId
+      ? {
+          id: Number(customerId),
+          name: customerName ?? "Cliente",
+          email: customerEmail ?? null,
+        }
+      : customerName
+        ? { name: customerName, email: customerEmail ?? null }
+        : null,
+    items: saleItems,
+    payments: [],
+  };
 }
 
 export class MockAggregateAdapter implements AggregatePort {
@@ -250,12 +486,21 @@ export class MockAggregateAdapter implements AggregatePort {
     const term = (query?.search || query?.q || "").toLowerCase().trim();
     if (term) {
       items = items.filter((c) =>
-        [c.name, c.surname, c.full_name, c.email, c.nif, c.customer_code]
+        [c.name, c.surname, c.full_name, c.email, c.nif, c.customer_code, c.phone]
           .filter(Boolean)
           .join(" ")
           .toLowerCase()
           .includes(term),
       );
+    }
+    if (query?.status !== undefined && query.status !== "") {
+      const active =
+        query.status === true ||
+        query.status === 1 ||
+        query.status === "1" ||
+        String(query.status).toLowerCase() === "active" ||
+        String(query.status).toLowerCase() === "true";
+      items = items.filter((c) => Boolean(c.status) === active);
     }
     const page = query?.page ?? 1;
     const perPage = Math.min(query?.per_page ?? 25, 100);
@@ -265,6 +510,7 @@ export class MockAggregateAdapter implements AggregatePort {
       data: items.slice(start, start + perPage),
       meta: {
         pagination: {
+          current_page: page,
           page,
           per_page: perPage,
           total: items.length,
@@ -296,25 +542,43 @@ export class MockAggregateAdapter implements AggregatePort {
     const payload = body.customer ? { ...body, ...body.customer } : body;
     const name = (payload.name || payload.nome || "").trim();
     if (!name) throw new AggregateApiError("Validation failed: name is required", 422, 422);
-    if (!payload.company_id) {
-      throw new AggregateApiError("Validation failed: company_id is required", 422, 422);
+    const companyId = assertCompanyLinked(payload.company_id);
+
+    if (payload.email) {
+      const dup = mockCustomerStore.find(
+        (c) => c.company_id === companyId && c.email?.toLowerCase() === payload.email!.toLowerCase(),
+      );
+      if (dup) throw new AggregateApiError("Validation failed: email already exists", 422, 422);
     }
-    if (Number(payload.company_id) !== 44) {
-      throw new AggregateApiError("company_id is not linked to this key", 422, 422);
+    if (payload.nif) {
+      const dup = mockCustomerStore.find(
+        (c) => c.company_id === companyId && c.nif === payload.nif,
+      );
+      if (dup) throw new AggregateApiError("Validation failed: nif already exists", 422, 422);
     }
+    if (payload.customer_code) {
+      const dup = mockCustomerStore.find(
+        (c) => c.company_id === companyId && c.customer_code === payload.customer_code,
+      );
+      if (dup) {
+        throw new AggregateApiError("Validation failed: customer_code already exists", 422, 422);
+      }
+    }
+
     const id = mockCustomerSeq++;
     const customer: AggregateCustomer = {
       id,
-      company_id: Number(payload.company_id),
+      company_id: companyId,
       name,
       surname: payload.surname ?? null,
       full_name: payload.surname ? `${name} ${payload.surname}` : name,
       email: payload.email ?? null,
       phone: payload.phone ?? null,
       nif: payload.nif ?? null,
-      customer_code: `CLI-${id}`,
-      status: true,
+      customer_code: payload.customer_code ?? `CLI-${id}`,
+      status: payload.status === undefined ? true : Boolean(payload.status),
       city: payload.city ?? null,
+      country_id: payload.country_id ?? 1,
     };
     mockCustomerStore.push(customer);
     return { created: true, customer: structuredClone(customer) };
@@ -345,9 +609,282 @@ export class MockAggregateAdapter implements AggregatePort {
       phone: payload.phone !== undefined ? payload.phone : current.phone,
       nif: payload.nif !== undefined ? payload.nif : current.nif,
       city: payload.city !== undefined ? payload.city : current.city,
+      customer_code:
+        payload.customer_code !== undefined ? payload.customer_code : current.customer_code,
+      status: payload.status !== undefined ? Boolean(payload.status) : current.status,
     };
     mockCustomerStore[idx] = updated;
     return { created: false, customer: structuredClone(updated) };
+  }
+
+  async listProducts(
+    apiKey: string,
+    query?: AggregateProductsQuery,
+  ): Promise<AggregateEnvelope<AggregateProduct[]>> {
+    authorize(apiKey, "products");
+    let items = [...mockProductStore];
+    if (query?.company_id) {
+      items = items.filter((p) => p.company_id === Number(query.company_id));
+    }
+    const kind = (query?.kind || query?.catalog || "all").toLowerCase();
+    if (kind === "service" || kind === "servico") {
+      items = items.filter((p) => isServiceProduct(p));
+    } else if (kind === "product" || kind === "pharmacy" || kind === "produto") {
+      items = items.filter((p) => !isServiceProduct(p));
+    }
+    const term = (query?.search || query?.q || "").toLowerCase().trim();
+    if (term) {
+      items = items.filter((p) =>
+        [p.name, p.code, p.reference, p.description, p.barcode]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(term),
+      );
+    }
+    if (query?.status) {
+      items = items.filter((p) => String(p.status).toLowerCase() === String(query.status).toLowerCase());
+    }
+    if (query?.category_id) {
+      items = items.filter((p) => p.category_id === Number(query.category_id));
+    }
+    const page = query?.page ?? 1;
+    const perPage = Math.min(query?.per_page ?? 25, 100);
+    const start = (page - 1) * perPage;
+    return {
+      success: true,
+      data: items.slice(start, start + perPage).map((p) => structuredClone(p)),
+      meta: {
+        pagination: {
+          current_page: page,
+          page,
+          per_page: perPage,
+          total: items.length,
+          last_page: Math.max(1, Math.ceil(items.length / perPage)),
+        },
+      },
+    };
+  }
+
+  async getProduct(
+    apiKey: string,
+    id: number | string,
+    query?: { company_id?: number | string },
+  ): Promise<AggregateProduct> {
+    authorize(apiKey, "products");
+    const product = mockProductStore.find((p) => p.id === Number(id));
+    if (!product) throw new AggregateApiError("Product not found", 404, 404);
+    if (query?.company_id && Number(query.company_id) !== product.company_id) {
+      throw new AggregateApiError("Product not found", 404, 404);
+    }
+    return structuredClone(product);
+  }
+
+  async createProduct(
+    apiKey: string,
+    body: AggregateProductWriteInput,
+  ): Promise<AggregateProductMutationResult> {
+    authorize(apiKey, "products");
+    const name = (body.name || "").trim();
+    if (!name) throw new AggregateApiError("Validation failed: name is required", 422, 422);
+    const companyId = assertCompanyLinked(body.company_id);
+    const kind = (body.kind || "product").toLowerCase();
+    const id = mockProductSeq++;
+    // Angola simplified regime mock: force 0% tax when applicable
+    const taxPercent = 0;
+    const product: AggregateProduct = {
+      id,
+      company_id: companyId,
+      name,
+      description: body.description ?? null,
+      code: body.code ?? null,
+      barcode: body.barcode ?? null,
+      reference: body.reference ?? null,
+      status: body.status ?? "active",
+      sale_price: body.sale_price ?? 0,
+      sale_price_ex_tax: body.sale_price_ex_tax ?? body.sale_price ?? 0,
+      purchase_price: body.purchase_price ?? null,
+      purchase_price_ex_tax: body.purchase_price_ex_tax ?? null,
+      tax_percent: taxPercent,
+      inventory: body.inventory ?? kind === "product",
+      is_sellable: body.is_sellable ?? true,
+      unit_of_measure: body.unit_of_measure ?? "un",
+      pricing_mode: body.pricing_mode ?? null,
+      category_id: body.category_id ?? null,
+      product_type:
+        kind === "service" || kind === "servico"
+          ? { id: 2, name: "Serviço" }
+          : { id: 1, name: "Artigo armagenavel" },
+      kind: kind === "service" || kind === "servico" ? "service" : "product",
+      stock_quantity: 0,
+    };
+    mockProductStore.push(product);
+    return { created: true, product: structuredClone(product) };
+  }
+
+  async updateProduct(
+    apiKey: string,
+    id: number | string,
+    body: AggregateProductWriteInput,
+  ): Promise<AggregateProductMutationResult> {
+    authorize(apiKey, "products");
+    const idx = mockProductStore.findIndex((p) => p.id === Number(id));
+    if (idx < 0) throw new AggregateApiError("Product not found", 404, 404);
+    const keys = Object.keys(body).filter((k) => k !== "company_id");
+    if (keys.length === 0) {
+      throw new AggregateApiError("Validation failed: no fields to update", 422, 422);
+    }
+    const current = mockProductStore[idx]!;
+    const updated: AggregateProduct = {
+      ...current,
+      name: body.name ?? current.name,
+      description: body.description !== undefined ? body.description : current.description,
+      code: body.code !== undefined ? body.code : current.code,
+      barcode: body.barcode !== undefined ? body.barcode : current.barcode,
+      reference: body.reference !== undefined ? body.reference : current.reference,
+      sale_price: body.sale_price !== undefined ? body.sale_price : current.sale_price,
+      sale_price_ex_tax:
+        body.sale_price_ex_tax !== undefined ? body.sale_price_ex_tax : current.sale_price_ex_tax,
+      purchase_price:
+        body.purchase_price !== undefined ? body.purchase_price : current.purchase_price,
+      status: body.status !== undefined ? body.status : current.status,
+      is_sellable: body.is_sellable !== undefined ? body.is_sellable : current.is_sellable,
+      unit_of_measure:
+        body.unit_of_measure !== undefined ? body.unit_of_measure : current.unit_of_measure,
+      // company_id ignored on update; tax forced 0 in simplified regime mock
+      tax_percent: 0,
+      company_id: current.company_id,
+    };
+    mockProductStore[idx] = updated;
+    return { created: false, product: structuredClone(updated) };
+  }
+
+  async createSale(
+    apiKey: string,
+    body: AggregateSaleCreateInput,
+  ): Promise<{ httpStatus: number; result: AggregateSaleMutationResult }> {
+    authorize(apiKey, "sales");
+    assertCompanyLinked(body.company_id);
+    const externalId = body.external_id ?? body.external_reference;
+    if (externalId && mockSaleByExternal.has(externalId)) {
+      const existingId = mockSaleByExternal.get(externalId)!;
+      const sale = mockSaleStore.find((s) => s.id === existingId)!;
+      return {
+        httpStatus: 200,
+        result: {
+          created: false,
+          idempotent: true,
+          hint: "Existing invoice returned for external_id (idempotent).",
+          sale: structuredClone(sale),
+        },
+      };
+    }
+
+    // Simulated ambiguous timeout AFTER remote create — client never saw the response.
+    // A safe retry with the same external_id returns the existing sale (idempotent).
+    if (externalId?.endsWith("-AMBIGUOUS-TIMEOUT")) {
+      if (!mockSaleByExternal.has(externalId)) {
+        const saleId = mockSaleSeq++;
+        const sale = buildSaleFromInput(body, saleId);
+        mockSaleStore.push(sale);
+        mockSaleByExternal.set(externalId, saleId);
+      }
+      throw new AggregateApiError("SIGESC Aggregate request timed out", 504, 504);
+    }
+
+    const saleId = mockSaleSeq++;
+    const sale = buildSaleFromInput(body, saleId);
+    mockSaleStore.push(sale);
+    if (externalId) mockSaleByExternal.set(externalId, saleId);
+
+    return {
+      httpStatus: 201,
+      result: {
+        created: true,
+        idempotent: false,
+        hint: "Invoice created as Cotação/Proforma. Publish and take payment inside SIGESC (stock + fiscal). Use sale_key for later GET /sales/{sale_key} or POST …/items.",
+        sale: structuredClone(sale),
+      },
+    };
+  }
+
+  async getSale(apiKey: string, saleKey: string): Promise<AggregateSale> {
+    authorize(apiKey, "sales");
+    const idMatch = String(saleKey).match(/(\d+)$/);
+    const id = idMatch ? Number(idMatch[1]) : Number(saleKey);
+    const sale = mockSaleStore.find((s) => s.id === id || s.sale_key === saleKey);
+    if (!sale) throw new AggregateApiError("Sale not found", 404, 404);
+    return structuredClone(sale);
+  }
+
+  async listSales(
+    apiKey: string,
+    query?: AggregateSalesQuery,
+  ): Promise<AggregateEnvelope<AggregateSale[]>> {
+    authorize(apiKey, "sales");
+    let items = [...mockSaleStore];
+    if (query?.company_id) {
+      items = items.filter((s) => s.company_id === Number(query.company_id));
+    }
+    if (query?.source) {
+      items = items.filter((s) => s.source === query.source);
+    }
+    if (query?.state) {
+      items = items.filter((s) => s.state === query.state);
+    }
+    const page = query?.page ?? 1;
+    const perPage = Math.min(query?.per_page ?? 25, 100);
+    const start = (page - 1) * perPage;
+    return {
+      success: true,
+      data: items.slice(start, start + perPage).map((s) => structuredClone(s)),
+      meta: {
+        pagination: {
+          current_page: page,
+          page,
+          per_page: perPage,
+          total: items.length,
+          last_page: Math.max(1, Math.ceil(items.length / perPage)),
+        },
+      },
+    };
+  }
+
+  async addSaleItems(
+    apiKey: string,
+    saleKey: string,
+    items: AggregateSaleItemInput[],
+  ): Promise<AggregateSale> {
+    authorize(apiKey, "sales");
+    const sale = await this.getSale(apiKey, saleKey);
+    if (sale.state !== "Cotação" && sale.state !== "Proforma") {
+      throw new AggregateApiError("Sale is not editable in this state", 422, 422);
+    }
+    if (!items.length) {
+      throw new AggregateApiError("At least one item is required", 422, 422);
+    }
+    const patch = buildSaleFromInput(
+      {
+        company_id: sale.company_id,
+        state: sale.state,
+        items,
+      },
+      sale.id,
+    );
+    const idx = mockSaleStore.findIndex((s) => s.id === sale.id);
+    const merged: AggregateSale = {
+      ...sale,
+      items: [...(sale.items ?? []), ...(patch.items ?? []).map((it, i) => ({
+        ...it,
+        id: (sale.items?.length ?? 0) + i + 1,
+      }))],
+      total: (sale.total ?? 0) + (patch.total ?? 0),
+      subtotal: (sale.subtotal ?? 0) + (patch.subtotal ?? 0),
+      tax: (sale.tax ?? 0) + (patch.tax ?? 0),
+      rest_payable: (sale.rest_payable ?? 0) + (patch.rest_payable ?? 0),
+    };
+    mockSaleStore[idx] = merged;
+    return structuredClone(merged);
   }
 
   async fetchMe(apiKey: string): Promise<unknown> {

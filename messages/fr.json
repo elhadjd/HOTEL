@@ -19,7 +19,10 @@
     "reports": "Rapports",
     "staff": "Équipe",
     "integrations": "Intégration SIGESC",
-    "settings": "Paramètres"
+    "settings": "Paramètres",
+    "centralCustomers": "Clients SIGESC",
+    "centralProducts": "Catalogue SIGESC",
+    "centralInvoices": "Devis SIGESC"
   },
   "common": {
     "search": "Rechercher réservations, clients, chambres…",

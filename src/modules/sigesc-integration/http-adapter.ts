@@ -9,6 +9,15 @@ import type {
   AggregateEnvelope,
   AggregateOnboardingData,
   AggregateOnboardingQuery,
+  AggregateProduct,
+  AggregateProductMutationResult,
+  AggregateProductsQuery,
+  AggregateProductWriteInput,
+  AggregateSale,
+  AggregateSaleCreateInput,
+  AggregateSaleItemInput,
+  AggregateSaleMutationResult,
+  AggregateSalesQuery,
   AggregateUser,
   AggregateUsersQuery,
 } from "./types";
@@ -41,8 +50,9 @@ export class HttpAggregateAdapter implements AggregatePort {
       searchParams?: Record<string, string | number | undefined>;
       body?: unknown;
       okStatuses?: number[];
+      returnStatus?: boolean;
     },
-  ): Promise<T> {
+  ): Promise<T | { httpStatus: number; data: T }> {
     const url = new URL(`${this.basePath()}${path}`);
     if (options?.searchParams) {
       for (const [k, v] of Object.entries(options.searchParams)) {
@@ -92,7 +102,53 @@ export class HttpAggregateAdapter implements AggregatePort {
     if (body.data === undefined) {
       throw new AggregateApiError("Invalid Aggregate envelope (missing data)", 502, 502);
     }
+    if (options?.returnStatus) {
+      return { httpStatus: res.status, data: body.data };
+    }
     return body.data;
+  }
+
+  private async requestEnvelope<T>(
+    apiKey: string,
+    path: string,
+    query?: Record<string, string | number | boolean | undefined>,
+  ): Promise<AggregateEnvelope<T>> {
+    const url = new URL(`${this.basePath()}${path}`);
+    if (query) {
+      for (const [k, v] of Object.entries(query)) {
+        if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
+      }
+    }
+    let res: Response;
+    try {
+      res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (err) {
+      const name = err instanceof Error ? err.name : "";
+      if (name === "TimeoutError" || name === "AbortError") {
+        throw new AggregateApiError("SIGESC Aggregate request timed out", 504, 504);
+      }
+      throw new AggregateApiError(
+        `SIGESC Aggregate unavailable: ${safeErrorMessage(err, "network error")}`,
+        503,
+        503,
+      );
+    }
+    let body: AggregateEnvelope<T> | null = null;
+    try {
+      body = (await res.json()) as AggregateEnvelope<T>;
+    } catch {
+      throw new AggregateApiError("Invalid JSON response from SIGESC Aggregate", 502, 502);
+    }
+    if (!res.ok || !body?.success) {
+      const raw = body?.error?.message ?? `Aggregate API error (${res.status})`;
+      throw new AggregateApiError(redactSecrets(raw), res.status, body?.error?.code ?? res.status);
+    }
+    return body;
   }
 
   async fetchOnboarding(
@@ -104,91 +160,25 @@ export class HttpAggregateAdapter implements AggregatePort {
         company_id: query?.company_id,
         company_ids: query?.company_ids,
       },
-    });
+    }) as Promise<AggregateOnboardingData>;
   }
 
   async fetchUsers(
     apiKey: string,
     query?: AggregateUsersQuery,
   ): Promise<AggregateEnvelope<AggregateUser[]>> {
-    const url = new URL(`${this.basePath()}/users`);
-    if (query) {
-      for (const [k, v] of Object.entries(query)) {
-        if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
-      }
-    }
-    let res: Response;
-    try {
-      res = await fetch(url.toString(), {
-        method: "GET",
-        headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
-        cache: "no-store",
-        signal: AbortSignal.timeout(this.timeoutMs),
-      });
-    } catch (err) {
-      const name = err instanceof Error ? err.name : "";
-      if (name === "TimeoutError" || name === "AbortError") {
-        throw new AggregateApiError("SIGESC Aggregate request timed out", 504, 504);
-      }
-      throw new AggregateApiError(
-        `SIGESC Aggregate unavailable: ${safeErrorMessage(err, "network error")}`,
-        503,
-        503,
-      );
-    }
-    let body: AggregateEnvelope<AggregateUser[]> | null = null;
-    try {
-      body = (await res.json()) as AggregateEnvelope<AggregateUser[]>;
-    } catch {
-      throw new AggregateApiError("Invalid JSON response from SIGESC Aggregate", 502, 502);
-    }
-    if (!res.ok || !body?.success) {
-      const raw = body?.error?.message ?? `Aggregate API error (${res.status})`;
-      throw new AggregateApiError(redactSecrets(raw), res.status, body?.error?.code ?? res.status);
-    }
-    return body;
+    return this.requestEnvelope<AggregateUser[]>(apiKey, "/users", query as Record<string, string | number | undefined>);
   }
 
   async listCustomers(
     apiKey: string,
     query?: AggregateCustomersQuery,
   ): Promise<AggregateEnvelope<AggregateCustomer[]>> {
-    const url = new URL(`${this.basePath()}/customers`);
-    if (query) {
-      for (const [k, v] of Object.entries(query)) {
-        if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
-      }
-    }
-    let res: Response;
-    try {
-      res = await fetch(url.toString(), {
-        method: "GET",
-        headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
-        cache: "no-store",
-        signal: AbortSignal.timeout(this.timeoutMs),
-      });
-    } catch (err) {
-      const name = err instanceof Error ? err.name : "";
-      if (name === "TimeoutError" || name === "AbortError") {
-        throw new AggregateApiError("SIGESC Aggregate request timed out", 504, 504);
-      }
-      throw new AggregateApiError(
-        `SIGESC Aggregate unavailable: ${safeErrorMessage(err, "network error")}`,
-        503,
-        503,
-      );
-    }
-    let body: AggregateEnvelope<AggregateCustomer[]> | null = null;
-    try {
-      body = (await res.json()) as AggregateEnvelope<AggregateCustomer[]>;
-    } catch {
-      throw new AggregateApiError("Invalid JSON response from SIGESC Aggregate", 502, 502);
-    }
-    if (!res.ok || !body?.success) {
-      const raw = body?.error?.message ?? `Aggregate API error (${res.status})`;
-      throw new AggregateApiError(redactSecrets(raw), res.status, body?.error?.code ?? res.status);
-    }
-    return body;
+    return this.requestEnvelope<AggregateCustomer[]>(
+      apiKey,
+      "/customers",
+      query as Record<string, string | number | undefined>,
+    );
   }
 
   async getCustomer(
@@ -198,7 +188,7 @@ export class HttpAggregateAdapter implements AggregatePort {
   ): Promise<AggregateCustomer> {
     return this.requestJson<AggregateCustomer>(apiKey, "GET", `/customers/${id}`, {
       searchParams: { company_id: query?.company_id },
-    });
+    }) as Promise<AggregateCustomer>;
   }
 
   async createCustomer(
@@ -208,7 +198,7 @@ export class HttpAggregateAdapter implements AggregatePort {
     return this.requestJson<AggregateCustomerMutationResult>(apiKey, "POST", "/customers", {
       body,
       okStatuses: [200, 201],
-    });
+    }) as Promise<AggregateCustomerMutationResult>;
   }
 
   async updateCustomer(
@@ -219,6 +209,86 @@ export class HttpAggregateAdapter implements AggregatePort {
     return this.requestJson<AggregateCustomerMutationResult>(apiKey, "PATCH", `/customers/${id}`, {
       body,
       okStatuses: [200],
-    });
+    }) as Promise<AggregateCustomerMutationResult>;
+  }
+
+  async listProducts(
+    apiKey: string,
+    query?: AggregateProductsQuery,
+  ): Promise<AggregateEnvelope<AggregateProduct[]>> {
+    return this.requestEnvelope<AggregateProduct[]>(
+      apiKey,
+      "/products",
+      query as Record<string, string | number | undefined>,
+    );
+  }
+
+  async getProduct(
+    apiKey: string,
+    id: number | string,
+    query?: { company_id?: number | string },
+  ): Promise<AggregateProduct> {
+    return this.requestJson<AggregateProduct>(apiKey, "GET", `/products/${id}`, {
+      searchParams: { company_id: query?.company_id },
+    }) as Promise<AggregateProduct>;
+  }
+
+  async createProduct(
+    apiKey: string,
+    body: AggregateProductWriteInput,
+  ): Promise<AggregateProductMutationResult> {
+    return this.requestJson<AggregateProductMutationResult>(apiKey, "POST", "/products", {
+      body,
+      okStatuses: [200, 201],
+    }) as Promise<AggregateProductMutationResult>;
+  }
+
+  async updateProduct(
+    apiKey: string,
+    id: number | string,
+    body: AggregateProductWriteInput,
+  ): Promise<AggregateProductMutationResult> {
+    return this.requestJson<AggregateProductMutationResult>(apiKey, "PATCH", `/products/${id}`, {
+      body,
+      okStatuses: [200],
+    }) as Promise<AggregateProductMutationResult>;
+  }
+
+  async createSale(
+    apiKey: string,
+    body: AggregateSaleCreateInput,
+  ): Promise<{ httpStatus: number; result: AggregateSaleMutationResult }> {
+    const wrapped = (await this.requestJson<AggregateSaleMutationResult>(apiKey, "POST", "/sales", {
+      body,
+      okStatuses: [200, 201],
+      returnStatus: true,
+    })) as { httpStatus: number; data: AggregateSaleMutationResult };
+    return { httpStatus: wrapped.httpStatus, result: wrapped.data };
+  }
+
+  async getSale(apiKey: string, saleKey: string): Promise<AggregateSale> {
+    return this.requestJson<AggregateSale>(apiKey, "GET", `/sales/${saleKey}`) as Promise<AggregateSale>;
+  }
+
+  async listSales(
+    apiKey: string,
+    query?: AggregateSalesQuery,
+  ): Promise<AggregateEnvelope<AggregateSale[]>> {
+    return this.requestEnvelope<AggregateSale[]>(
+      apiKey,
+      "/sales",
+      query as Record<string, string | number | undefined>,
+    );
+  }
+
+  async addSaleItems(
+    apiKey: string,
+    saleKey: string,
+    items: AggregateSaleItemInput[],
+  ): Promise<AggregateSale> {
+    return this.requestJson<AggregateSale>(apiKey, "POST", `/sales/${saleKey}/items`, {
+      body: { items },
+      okStatuses: [200, 201],
+    }) as Promise<AggregateSale>;
   }
 }

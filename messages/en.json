@@ -19,7 +19,10 @@
     "reports": "Reports",
     "staff": "Staff",
     "integrations": "SIGESC Integration",
-    "settings": "Settings"
+    "settings": "Settings",
+    "centralCustomers": "SIGESC Customers",
+    "centralProducts": "SIGESC Catalog",
+    "centralInvoices": "SIGESC Quotes"
   },
   "common": {
     "search": "Search reservations, guests, rooms…",

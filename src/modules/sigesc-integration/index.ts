@@ -19,8 +19,17 @@ export {
   MOCK_REVOKED_MCA_KEY,
   MOCK_NOSCOPE_MCA_KEY,
   MOCK_AGGREGATE_FIXTURE,
+  MOCK_PRODUCTS_FIXTURE,
   resetMockCustomerStore,
+  resetMockProductStore,
+  resetMockSaleStore,
+  resetAllMockAggregateStores,
 } from "./mock-adapter";
+export {
+  resolveInstitutionAggregateConnection,
+  assertAggregateScope,
+  mapAggregateError,
+} from "./connection-context";
 
 export {
   connectAggregateAccount,

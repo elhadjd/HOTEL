@@ -22,6 +22,9 @@ export const PERMISSIONS = [
   { code: "staff.write", module: "staff", action: "write" },
   { code: "settings.write", module: "settings", action: "write" },
   { code: "integrations.sigesc", module: "integrations", action: "sigesc" },
+  { code: "integrations.customers", module: "integrations", action: "customers" },
+  { code: "integrations.products", module: "integrations", action: "products" },
+  { code: "integrations.invoices", module: "integrations", action: "invoices" },
 ] as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[number]["code"];
@@ -51,6 +54,8 @@ export const SYSTEM_ROLES = [
       "stays.checkin",
       "stays.checkout",
       "housekeeping.read",
+      "integrations.customers",
+      "integrations.invoices",
     ] satisfies PermissionCode[],
   },
   {
@@ -67,7 +72,8 @@ export const SYSTEM_ROLES = [
     code: "supervisor",
     name: "Supervisor",
     permissions: PERMISSIONS.map((p) => p.code).filter(
-      (c) => !["integrations.sigesc", "staff.write", "settings.write"].includes(c),
+      (c) =>
+        !["integrations.sigesc", "staff.write", "settings.write"].includes(c),
     ),
   },
   {

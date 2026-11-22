@@ -19,7 +19,10 @@
     "reports": "Relatórios",
     "staff": "Equipa",
     "integrations": "Integração SIGESC",
-    "settings": "Definições"
+    "settings": "Definições",
+    "centralCustomers": "Clientes SIGESC",
+    "centralProducts": "Catálogo SIGESC",
+    "centralInvoices": "Cotações SIGESC"
   },
   "common": {
     "search": "Pesquisar reservas, hóspedes, quartos…",

@@ -127,11 +127,18 @@ export type AggregateCustomer = {
 
 export type AggregateCustomersQuery = {
   company_id?: number | string;
+  company_ids?: string;
+  company_reference?: number | string;
+  company_references?: string;
   search?: string;
   q?: string;
   status?: string | number | boolean;
-  page?: number;
   per_page?: number;
+  page?: number;
+  sort?: string;
+  direction?: string;
+  date_from?: string;
+  date_to?: string;
 };
 
 export type AggregateCustomerWriteInput = {
@@ -142,7 +149,19 @@ export type AggregateCustomerWriteInput = {
   email?: string | null;
   phone?: string | null;
   nif?: string | null;
+  address?: string | null;
   city?: string | null;
+  province?: string | null;
+  country_id?: number | null;
+  customer_type?: string | null;
+  customer_code?: string | null;
+  credit_limit?: number | null;
+  account_balance?: number | null;
+  terms_payment_id?: number | null;
+  birth_date?: string | null;
+  sex?: string | null;
+  image?: string | null;
+  reference?: string | null;
   status?: string | boolean;
   customer?: AggregateCustomerWriteInput;
 };
@@ -150,6 +169,183 @@ export type AggregateCustomerWriteInput = {
 export type AggregateCustomerMutationResult = {
   created: boolean;
   customer: AggregateCustomer;
+};
+
+export type AggregateProduct = {
+  id: number;
+  company_id: number;
+  name: string;
+  description?: string | null;
+  code?: string | null;
+  reference?: string | null;
+  barcode?: string | null;
+  status?: string | boolean | null;
+  sale_price?: number | null;
+  price?: number | null;
+  sale_price_ex_tax?: number | null;
+  purchase_price?: number | null;
+  purchase_price_ex_tax?: number | null;
+  tax_percent?: number | null;
+  inventory?: boolean | null;
+  is_sellable?: boolean | null;
+  unit_of_measure?: string | null;
+  pricing_mode?: string | null;
+  category_id?: number | null;
+  category_name?: string | null;
+  product_type?: { id?: number; name?: string } | string | null;
+  stock_quantity?: number | null;
+  created_at?: string;
+  updated_at?: string;
+  kind?: string | null;
+};
+
+export type AggregateProductsQuery = {
+  company_id?: number | string;
+  company_ids?: string;
+  company_reference?: number | string;
+  company_references?: string;
+  search?: string;
+  q?: string;
+  kind?: string;
+  catalog?: string;
+  status?: string;
+  category_id?: number | string;
+  product_type_id?: number | string;
+  per_page?: number;
+  page?: number;
+  sort?: string;
+  direction?: string;
+  date_from?: string;
+  date_to?: string;
+};
+
+export type AggregateProductWriteInput = {
+  company_id?: number | string;
+  name?: string;
+  kind?: string;
+  product_type_id?: number | string;
+  description?: string | null;
+  code?: string | null;
+  barcode?: string | null;
+  reference?: string | null;
+  sale_price?: number | null;
+  purchase_price?: number | null;
+  sale_price_ex_tax?: number | null;
+  purchase_price_ex_tax?: number | null;
+  tax_percent?: number | null;
+  tax_rate_id?: number | null;
+  status?: string | boolean;
+  category_id?: number | null;
+  is_sellable?: boolean;
+  inventory?: boolean;
+  allow_backorder?: boolean;
+  unit_of_measure?: string | null;
+  pricing_mode?: string | null;
+  min_quantity?: number | null;
+  manufacturer?: string | null;
+  image?: string | null;
+  tax_exception_code?: string | null;
+  tax_exception_reason?: string | null;
+};
+
+export type AggregateProductMutationResult = {
+  created: boolean;
+  product: AggregateProduct;
+};
+
+/** Documented invoice states creatable via Aggregate */
+export type AggregateSaleCreatableState = "Cotação" | "Proforma";
+
+export type AggregateSaleItemInput = {
+  product_id: number | string;
+  id?: number | string;
+  produtos_id?: number | string;
+  quantity?: number;
+  qty?: number;
+  unit_price?: number;
+  price?: number;
+  sale_price?: number;
+  discount?: number;
+  description?: string;
+  warehouse_id?: number | string;
+};
+
+export type AggregateSaleCreateInput = {
+  company_id: number | string;
+  items?: AggregateSaleItemInput[];
+  lines?: AggregateSaleItemInput[];
+  external_id?: string;
+  external_reference?: string;
+  partner?: string;
+  state?: string;
+  date?: string;
+  document_date?: string;
+  date_order?: string;
+  date_due?: string;
+  warehouse_id?: number | string;
+  customer_id?: number | string;
+  costumer_id?: number | string;
+  customer_name?: string;
+  customer_email?: string;
+  customer_phone?: string;
+  customer_nif?: string;
+  customer?: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    nif?: string;
+  };
+  notes?: string;
+  allow_empty_items?: boolean;
+};
+
+export type AggregateSaleItem = {
+  id?: number;
+  quantity?: number;
+  unit_price?: number;
+  discount?: number;
+  tax_percent?: number;
+  tax_amount?: number;
+  line_total?: number;
+  product?: { id?: number; name?: string; code?: string; sale_price?: number };
+};
+
+export type AggregateSale = {
+  id: number;
+  sale_key: string;
+  source?: string;
+  company_id: number;
+  order_reference?: string | null;
+  state: string;
+  total?: number;
+  subtotal?: number;
+  tax?: number;
+  rest_payable?: number;
+  date?: string;
+  date_due?: string;
+  customer?: {
+    id?: number;
+    name?: string;
+    surname?: string | null;
+    email?: string | null;
+  } | null;
+  items?: AggregateSaleItem[];
+  payments?: unknown[];
+};
+
+export type AggregateSaleMutationResult = {
+  created: boolean;
+  idempotent: boolean;
+  hint?: string;
+  sale: AggregateSale;
+};
+
+export type AggregateSalesQuery = {
+  company_id?: number | string;
+  source?: string;
+  state?: string;
+  page?: number;
+  per_page?: number;
 };
 
 export class AggregateApiError extends Error {
