@@ -6,6 +6,15 @@ import type {
   AggregateEnvelope,
   AggregateOnboardingData,
   AggregateOnboardingQuery,
+  AggregateProduct,
+  AggregateProductMutationResult,
+  AggregateProductsQuery,
+  AggregateProductWriteInput,
+  AggregateSale,
+  AggregateSaleCreateInput,
+  AggregateSaleItemInput,
+  AggregateSaleMutationResult,
+  AggregateSalesQuery,
   AggregateUser,
   AggregateUsersQuery,
 } from "./types";
@@ -14,6 +23,7 @@ import { resolveValidatedAggregateHost } from "./host-allowlist";
 /**
  * Port for SIGESC Aggregate multi-company API (documented endpoints only).
  * @see docs/architecture/SIGESC_INTEGRATION.md
+ * @see docs/contracts/API_AGGREGATE_*.md
  */
 export interface AggregatePort {
   fetchOnboarding(
@@ -47,6 +57,50 @@ export interface AggregatePort {
     id: number | string,
     body: AggregateCustomerWriteInput,
   ): Promise<AggregateCustomerMutationResult>;
+
+  listProducts(
+    apiKey: string,
+    query?: AggregateProductsQuery,
+  ): Promise<AggregateEnvelope<AggregateProduct[]>>;
+
+  getProduct(
+    apiKey: string,
+    id: number | string,
+    query?: { company_id?: number | string },
+  ): Promise<AggregateProduct>;
+
+  createProduct(
+    apiKey: string,
+    body: AggregateProductWriteInput,
+  ): Promise<AggregateProductMutationResult>;
+
+  updateProduct(
+    apiKey: string,
+    id: number | string,
+    body: AggregateProductWriteInput,
+  ): Promise<AggregateProductMutationResult>;
+
+  /**
+   * POST /sales — Cotação/Proforma only.
+   * Returns httpStatus so callers can distinguish 201 vs 200 idempotent.
+   */
+  createSale(
+    apiKey: string,
+    body: AggregateSaleCreateInput,
+  ): Promise<{ httpStatus: number; result: AggregateSaleMutationResult }>;
+
+  getSale(apiKey: string, saleKey: string): Promise<AggregateSale>;
+
+  listSales(
+    apiKey: string,
+    query?: AggregateSalesQuery,
+  ): Promise<AggregateEnvelope<AggregateSale[]>>;
+
+  addSaleItems(
+    apiKey: string,
+    saleKey: string,
+    items: AggregateSaleItemInput[],
+  ): Promise<AggregateSale>;
 
   fetchMe?(apiKey: string): Promise<unknown>;
 }

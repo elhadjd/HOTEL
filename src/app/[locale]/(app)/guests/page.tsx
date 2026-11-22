@@ -57,7 +57,9 @@ export default async function GuestsPage({
                 {guests.map((guest) => (
                   <tr key={guest.id} className="border-b border-sand-100">
                     <td className="px-4 py-3 font-medium text-ink-900">
-                      {guest.firstName} {guest.lastName}
+                      <a href={`/guests/${guest.id}`} className="text-teal-800 hover:underline">
+                        {guest.firstName} {guest.lastName}
+                      </a>
                     </td>
                     <td className="px-4 py-3 text-stone-600">
                       {[guest.email, guest.phone].filter(Boolean).join(" · ") || "—"}

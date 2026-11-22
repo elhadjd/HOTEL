@@ -37,18 +37,21 @@ X-Api-Key: mca_…
 
 | Method | Path | Scope | Status |
 |--------|------|-------|--------|
-| GET | `/customers` | `customers` \| `all` | **Confirmed — Phase 5** |
-| GET | `/customers/{id}` | | **Confirmed** |
-| POST | `/customers` | | **Confirmed** (explicit create only) |
-| PATCH/PUT | `/customers/{id}` | | **Confirmed** (`company_id` ignored on update) |
+| GET | `/customers` | `customers` \| `all` | **Implemented — Phase 4** |
+| GET | `/customers/{id}` | | **Implemented** |
+| POST | `/customers` | | **Implemented** (explicit create only) |
+| PATCH/PUT | `/customers/{id}` | | **Implemented** (`company_id` ignored on update) |
 
-### Products / subscriptions
+### Products / sales
 
 | Method | Path | Scope | Status |
 |--------|------|-------|--------|
-| GET/POST/PATCH | `/products`… | `products` \| `all` | Confirmed for Escolar catalog; Hotelaria uses later for room-rate product mapping if needed |
-| `/subscriptions`… | `subscriptions` \| `all` | Confirmed in Laravel PR #1289 docs — **not for Phase 1** |
-| `/sales`, invoices, payments | various | | **Do not invent**; wait for confirmed stay-checkout workflow |
+| GET/POST/PATCH | `/products`… | `products` \| `all` | **Implemented — Phase 4** |
+| POST/GET | `/sales`… | `sales` \| `all` | **Implemented — Cotação/Proforma only** |
+| `/subscriptions`… | `subscriptions` \| `all` | Confirmed in Laravel docs — **not for Hotelaria Phase 4** |
+| Publish / pay / stock | — | — | **Central SIGESC only — never via Aggregate from Hotelaria** |
+
+See `docs/architecture/PHASE4_AGGREGATE_COMMERCE.md`.
 
 ---
 
@@ -64,8 +67,11 @@ src/modules/sigesc-integration/
   host-allowlist.ts  # SSRF protection
   sanitize.ts        # redact secrets from logs/errors
   onboarding-service.ts
-  customers-service.ts   # Phase 5
-  types.ts / customer-types.ts
+  customers/customers-service.ts
+  products/products-service.ts
+  invoices/invoice-service.ts
+  connection-context.ts
+  types.ts
 ```
 
 **Rule:** no ad-hoc `fetch` to Aggregate outside this module.

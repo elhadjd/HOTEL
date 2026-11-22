@@ -14,6 +14,9 @@ import {
   Plug,
   LogIn,
   LogOut,
+  Package,
+  FileText,
+  Contact,
 } from "lucide-react";
 
 export const APP_NAV = [
@@ -32,5 +35,8 @@ export const APP_NAV = [
   { href: "/reports", labelKey: "nav.reports", icon: LineChart },
   { href: "/staff", labelKey: "nav.staff", icon: Users },
   { href: "/integrations/sigesc", labelKey: "nav.integrations", icon: Plug },
+  { href: "/integrations/customers", labelKey: "nav.centralCustomers", icon: Contact },
+  { href: "/integrations/products", labelKey: "nav.centralProducts", icon: Package },
+  { href: "/integrations/invoices", labelKey: "nav.centralInvoices", icon: FileText },
   { href: "/settings", labelKey: "nav.settings", icon: Settings },
 ] as const;
