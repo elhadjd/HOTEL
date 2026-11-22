@@ -23,7 +23,12 @@
     "centralCustomers": "SIGESC Customers",
     "centralProducts": "SIGESC Catalog",
     "centralInvoices": "SIGESC Quotes",
-    "stays": "Active stays"
+    "stays": "Active stays",
+    "groupOverview": "Overview",
+    "groupFrontDesk": "Front desk",
+    "groupOperations": "Operations",
+    "groupIntegrations": "Integrations",
+    "groupSystem": "System"
   },
   "common": {
     "search": "Search reservations, guests, rooms…",

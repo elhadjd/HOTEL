@@ -45,26 +45,26 @@ export default async function GuestsPage({
           {guests.length === 0 ? (
             <EmptyState title={t("nav.guests")} description={t("common.empty")} />
           ) : (
-            <table className="font-ui w-full text-left text-sm">
-              <thead className="border-b border-sand-200 bg-sand-50/80 text-xs uppercase tracking-wide text-stone-500">
+            <table className="data-table">
+              <thead>
                 <tr>
-                  <th className="px-4 py-3">Nome</th>
-                  <th className="px-4 py-3">Contacto</th>
-                  <th className="px-4 py-3">SIGESC</th>
+                  <th>Nome</th>
+                  <th>Contacto</th>
+                  <th>SIGESC</th>
                 </tr>
               </thead>
               <tbody>
                 {guests.map((guest) => (
-                  <tr key={guest.id} className="border-b border-sand-100">
-                    <td className="px-4 py-3 font-medium text-ink-900">
+                  <tr key={guest.id}>
+                    <td className="font-medium text-ink-900">
                       <a href={`/guests/${guest.id}`} className="text-teal-800 hover:underline">
                         {guest.firstName} {guest.lastName}
                       </a>
                     </td>
-                    <td className="px-4 py-3 text-stone-600">
+                    <td className="text-stone-600">
                       {[guest.email, guest.phone].filter(Boolean).join(" · ") || "—"}
                     </td>
-                    <td className="px-4 py-3 text-stone-500">
+                    <td className="text-stone-500">
                       {guest.customerMapping?.syncStatus ?? "UNLINKED"}
                     </td>
                   </tr>
