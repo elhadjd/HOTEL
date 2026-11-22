@@ -89,9 +89,20 @@ export async function createReservation(
   assertValidStayRange(arrival, departure);
 
   if (input.primaryGuestId) {
-    const guest = await prisma.guest.findUnique({ where: { id: input.primaryGuestId } });
+    const guest = await prisma.guest.findUnique({
+      where: { id: input.primaryGuestId },
+      include: { customerMapping: true },
+    });
     if (!guest || guest.institutionId !== ctx.institutionId) {
       throw new Error("Guest not found");
+    }
+    if (
+      guest.customerMapping?.syncStatus !== "LINKED" ||
+      !guest.customerMapping.externalCustomerId
+    ) {
+      throw new Error(
+        "Guest must have a valid SIGESC Central customer association before assignment to a reservation",
+      );
     }
   }
 

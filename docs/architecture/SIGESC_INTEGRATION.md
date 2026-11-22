@@ -70,6 +70,7 @@ src/modules/sigesc-integration/
   customers/customers-service.ts
   products/products-service.ts
   invoices/invoice-service.ts
+  guests/customer-to-guest-service.ts
   connection-context.ts
   types.ts
 ```
@@ -96,32 +97,45 @@ Key rotation: validate new key first; keep previous ciphertext on failure.
 
 ---
 
-## 4. Guest ↔ customer mapping
+## 4. Guest ↔ customer mapping (Phase 5)
 
 | Local | Remote | Mapping |
 |-------|--------|---------|
-| `Guest` | Aggregate `Customer` | `GuestCustomerMapping` + `SyncMapping(localType=Guest)` |
+| `Guest` | Aggregate `Customer` | `GuestCustomerMapping` |
 
-Rules (from Escolar FinancialResponsible pattern):
+Rules:
 
-- SIGESC is commercial source of truth  
-- Guest remains usable if Aggregate is down  
+- SIGESC Customer is the financial identity; Guest is the hospitality profile — never merge entities  
+- **New Guests require** a valid Central Customer (`LINKED`)  
+- Central Customers may exist **without** a Guest  
+- Convert via `POST /api/v1/integrations/sigesc/customers/convert` (individual + bulk ≤50)  
 - Matching produces candidate report; **no silent auto-link when ambiguous**  
-- `company_id` for writes comes from connection, never the browser  
-- Do not overwrite remote fiscal fields blindly  
+- `company_id` / `institutionId` for writes come from connection/session, never the browser  
+- Unlink forbidden; re-associate only  
+- Historical unlinked guests: `NEEDS_RESOLUTION` (preserve history; block reservation/invoice until resolved)
 
 ---
 
-## 5. Check-out financial handoff (Phase 5)
+## 5. Central product pricing (Phase 5)
+
+- Official `sale_price` / tax from Aggregate only  
+- `legacy_historical_price` is audit residue — never authoritative  
+- Invoice lines always call `verifyCentralProductPrice` before draft/submit  
+- UI freshness: 5 minutes; stale cache must not be shown as confirmed current  
+- Refresh: `POST /api/v1/integrations/sigesc/catalog-mappings/{id}/refresh`
+
+---
+
+## 5b. Check-out financial handoff
 
 **Operational check-out completes locally** (room → DIRTY, stay closed).  
 
-Financial completion:
+Financial completion (Cotação/Proforma only where Aggregate permits):
 
-1. Ensure guest mapping exists (or explicit create authorized)  
-2. Call only **documented** Aggregate endpoints (customer upsert; later sale/subscription if approved)  
-3. Persist external refs + sync status  
-4. UI shows “financial confirmation pending” until SIGESC confirms  
+1. Guest must be LINKED to Central Customer  
+2. Verify central product prices  
+3. Persist `InvoiceIntegration` + `external_id` idempotency  
+4. Never use local operational price fallback  
 
 **Never** mark fiscal completion locally without remote confirmation.
 

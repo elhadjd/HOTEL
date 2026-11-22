@@ -82,11 +82,21 @@ Institution 1──* Membership ── User
 
 | Model | Purpose |
 |-------|---------|
-| `Guest` | Operational hotel guest profile (usable offline from SIGESC) |
+| `Guest` | Operational hotel guest profile |
 | `GuestDocument` | ID document references where legally appropriate |
-| `GuestCustomerMapping` | Local guest ↔ Aggregate customer + sync status |
+| `GuestCustomerMapping` | Local guest ↔ Aggregate customer + sync status (`LINKED` required for new guests; `NEEDS_RESOLUTION` for historical orphans) |
 
-Guest ≠ SIGESC financial customer. Mapping is explicit and idempotent.
+**Phase 5 invariant:** every **new** Guest must be LINKED to a valid SIGESC Central Customer. A Central Customer may exist without a Guest. Unlink is forbidden; re-associate only. Unique `(institutionId, externalCustomerId)`.
+
+### Product catalog (Aggregate)
+
+| Model | Purpose |
+|-------|---------|
+| `ProductCatalogMapping` | Local service/product code ↔ central product id |
+| `centralSalePrice` / `centralTaxPercent` / `centralPriceVerifiedAt` | Verified cache from Aggregate (5 min freshness for UI) |
+| `legacyHistoricalPrice` | Non-authoritative Phase 4 residue (never used for invoices) |
+
+See `PHASE5_CENTRAL_PRICING_CUSTOMER_GUEST_LIFECYCLE.md`.
 
 ### Housekeeping & maintenance
 

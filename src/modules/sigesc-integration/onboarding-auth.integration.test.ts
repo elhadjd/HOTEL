@@ -157,8 +157,10 @@ describe.runIf(hasDb)("Phase 2 onboarding + auth integration", () => {
       orderBy: { createdAt: "desc" },
     });
     // Recover plaintext from outbox encrypted secret
+    // Outbox may already be SENT if the background dispatcher won the race.
     const mail = await prisma.emailOutbox.findFirstOrThrow({
-      where: { template: "PASSWORD_RECOVERY", status: "PENDING" },
+      where: { template: "PASSWORD_RECOVERY" },
+      orderBy: { createdAt: "desc" },
     });
     const token = decryptAggregateKey(mail.encryptedSecret!);
 

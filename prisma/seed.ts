@@ -132,7 +132,7 @@ async function main() {
     roomRecords[room.code] = row.id;
   }
 
-  // Demo guest — operational profile only; SIGESC financial mapping stays UNLINKED
+  // Demo guest — Phase 5: historical seed may need customer resolution in UI
   const guest = await prisma.guest.upsert({
     where: { id: "00000000-0000-4000-8000-000000000001" },
     create: {
@@ -157,9 +157,9 @@ async function main() {
     create: {
       guestId: guest.id,
       institutionId: institution.id,
-      syncStatus: "UNLINKED",
+      syncStatus: "NEEDS_RESOLUTION",
     },
-    update: { syncStatus: "UNLINKED" },
+    update: {},
   });
 
   const arrival = new Date(Date.UTC(2026, 11, 10));

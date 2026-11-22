@@ -30,6 +30,9 @@ export function GuestMappingClient({
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  const needsResolution =
+    syncStatus === "NEEDS_RESOLUTION" || syncStatus === "UNLINKED" || !externalCustomerId;
+
   function search(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -46,21 +49,21 @@ export function GuestMappingClient({
     });
   }
 
-  function link(centralCustomerId: number) {
+  function associate(centralCustomerId: number, action: "link" | "reassociate") {
     setError(null);
     setInfo(null);
     startTransition(async () => {
       const res = await fetch(`/api/v1/guests/${guestId}/customer-mapping`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "link", centralCustomerId }),
+        body: JSON.stringify({ action, centralCustomerId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error ?? "Link failed");
+        setError(data.error ?? "Association failed");
         return;
       }
-      setInfo("Hóspede ligado ao cliente central.");
+      setInfo("Hóspede associado ao cliente central.");
       router.refresh();
     });
   }
@@ -81,30 +84,10 @@ export function GuestMappingClient({
       }
       if (data.needsConfirmation) {
         setCandidates(data.candidates ?? []);
-        setInfo(
-          "Foram encontrados possíveis clientes existentes. Ligue um deles ou force a criação.",
-        );
+        setInfo("Possíveis clientes existentes. Associe um ou force a criação.");
         return;
       }
-      setInfo("Cliente central criado e ligado.");
-      router.refresh();
-    });
-  }
-
-  function unlink() {
-    setError(null);
-    startTransition(async () => {
-      const res = await fetch(`/api/v1/guests/${guestId}/customer-mapping`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "unlink" }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error ?? "Unlink failed");
-        return;
-      }
-      setInfo("Ligação removida localmente (cliente central não foi apagado).");
+      setInfo("Cliente central criado e associado.");
       router.refresh();
     });
   }
@@ -116,6 +99,12 @@ export function GuestMappingClient({
         Estado: <strong>{syncStatus}</strong>
         {externalCustomerId ? ` · ID ${externalCustomerId}` : ""}
       </p>
+      {needsResolution ? (
+        <p className="font-ui mt-2 text-sm text-amber-800">
+          Este hóspede histórico precisa de resolução explícita — não pode ser usado em reservas ou
+          faturas até estar LINKED.
+        </p>
+      ) : null}
       {error ? <p className="font-ui mt-2 text-sm text-red-700">{error}</p> : null}
       {info ? <p className="font-ui mt-2 text-sm text-teal-800">{info}</p> : null}
 
@@ -146,32 +135,40 @@ export function GuestMappingClient({
                   {[c.email, c.phone, c.nif].filter(Boolean).join(" · ")}
                 </div>
               </div>
-              <Button type="button" size="sm" disabled={pending} onClick={() => link(c.id)}>
-                Ligar
+              <Button
+                type="button"
+                size="sm"
+                disabled={pending}
+                onClick={() =>
+                  associate(c.id, needsResolution || !externalCustomerId ? "link" : "reassociate")
+                }
+              >
+                {needsResolution ? "Associar" : "Reassociar"}
               </Button>
             </li>
           ))}
         </ul>
       ) : null}
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button type="button" disabled={pending} onClick={() => createFromGuest(false)}>
-          Criar a partir do hóspede
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          disabled={pending}
-          onClick={() => createFromGuest(true)}
-        >
-          Forçar criação
-        </Button>
-        {syncStatus === "LINKED" ? (
-          <Button type="button" variant="secondary" disabled={pending} onClick={unlink}>
-            Desligar
+      {needsResolution ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button type="button" disabled={pending} onClick={() => createFromGuest(false)}>
+            Criar cliente a partir do hóspede
           </Button>
-        ) : null}
-      </div>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={pending}
+            onClick={() => createFromGuest(true)}
+          >
+            Forçar criação
+          </Button>
+        </div>
+      ) : (
+        <p className="font-ui mt-4 text-xs text-stone-500">
+          Desassociar sem substituto não é permitido. Use reassociar para outro cliente válido.
+        </p>
+      )}
     </div>
   );
 }

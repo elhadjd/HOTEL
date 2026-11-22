@@ -8,14 +8,15 @@ import {
 } from "@/modules/sigesc-integration/products/products-service";
 import { mapAggregateError } from "@/modules/sigesc-integration/connection-context";
 
-const upsertSchema = z.object({
-  localCode: z.string().min(1).max(64),
-  localLabel: z.string().min(1).max(255),
-  localOperationalPrice: z.number().nonnegative().optional().nullable(),
-  kind: z.enum(["PRODUCT", "SERVICE"]).optional(),
-  centralProductId: z.union([z.string(), z.number()]),
-  active: z.boolean().optional(),
-});
+const upsertSchema = z
+  .object({
+    localCode: z.string().min(1).max(64),
+    localLabel: z.string().min(1).max(255),
+    kind: z.enum(["PRODUCT", "SERVICE"]).optional(),
+    centralProductId: z.union([z.string(), z.number()]),
+    active: z.boolean().optional(),
+  })
+  .strict();
 
 export async function GET() {
   const authz = await requireTenant("integrations.products");

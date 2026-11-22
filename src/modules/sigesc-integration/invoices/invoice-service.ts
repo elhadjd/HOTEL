@@ -9,6 +9,8 @@ import {
 } from "../connection-context";
 import type { AggregateSaleCreateInput, AggregateSaleItemInput } from "../types";
 import { AggregateApiError } from "../types";
+import { verifyCentralProductPrice } from "../products/products-service";
+import { isGuestCustomerLinked } from "@/modules/guests/guest-service";
 
 export const HOTELARIA_PARTNER = "sigesc_hotelaria";
 
@@ -24,6 +26,7 @@ export type InvoiceLineDraft = {
   mappingLocalCode?: string;
   centralProductId?: string;
   quantity: number;
+  /** Ignored — Phase 5 uses verified central sale_price only */
   unitPrice?: number;
   discount?: number;
   description?: string;
@@ -45,11 +48,13 @@ async function resolveLineItems(
   Array<{
     product_id: number;
     quantity: number;
-    unit_price?: number;
+    unit_price: number;
     discount?: number;
     description?: string;
     centralName?: string | null;
     localCode?: string | null;
+    tax_percent?: number | null;
+    priceVerifiedAt: string;
   }>
 > {
   if (!lines.length) throw new Error("At least one invoice line is required");
@@ -57,19 +62,21 @@ async function resolveLineItems(
   const resolved: Array<{
     product_id: number;
     quantity: number;
-    unit_price?: number;
+    unit_price: number;
     discount?: number;
     description?: string;
     centralName?: string | null;
     localCode?: string | null;
+    tax_percent?: number | null;
+    priceVerifiedAt: string;
   }> = [];
 
   for (const line of lines) {
     if (line.quantity <= 0) throw new Error("Line quantity must be positive");
 
     let productId = line.centralProductId;
-    let centralName: string | null = null;
     let localCode: string | null = line.mappingLocalCode ?? null;
+    let mappingId: string | null = null;
 
     if (line.mappingLocalCode) {
       const mapping = await prisma.productCatalogMapping.findUnique({
@@ -89,22 +96,50 @@ async function resolveLineItems(
         throw new Error("Catalog mapping belongs to a different central company");
       }
       productId = mapping.centralProductId;
-      centralName = mapping.centralName;
       localCode = mapping.localCode;
+      mappingId = mapping.id;
     }
 
     if (!productId) {
       throw new Error("Each line requires a central product mapping or product id");
     }
 
+    // Official price: live Aggregate verification only — never legacyHistoricalPrice / browser unitPrice
+    let verified;
+    try {
+      verified = await verifyCentralProductPrice(prisma, ctx, productId);
+    } catch (err) {
+      throw new Error(
+        err instanceof Error
+          ? `Cannot verify central price for product #${productId}: ${err.message}`
+          : `Cannot verify central price for product #${productId}`,
+      );
+    }
+
+    if (mappingId) {
+      await prisma.productCatalogMapping.update({
+        where: { id: mappingId },
+        data: {
+          centralName: verified.name,
+          centralSalePrice: verified.salePrice,
+          centralTaxPercent: verified.taxPercent,
+          centralPriceVerifiedAt: verified.verifiedAt,
+          lastSyncedAt: verified.verifiedAt,
+          lastError: null,
+        },
+      });
+    }
+
     resolved.push({
-      product_id: Number(productId),
+      product_id: verified.productId,
       quantity: line.quantity,
-      unit_price: line.unitPrice,
+      unit_price: verified.salePrice,
       discount: line.discount,
       description: line.description,
-      centralName,
+      centralName: verified.name,
       localCode,
+      tax_percent: verified.taxPercent,
+      priceVerifiedAt: verified.verifiedAt.toISOString(),
     });
   }
 
@@ -165,14 +200,7 @@ export async function createInvoiceDraft(
     input.lines,
   );
 
-  // Validate products exist centrally for this company
   const client = getAggregateClient();
-  for (const line of lineItems) {
-    const product = await client.getProduct(resolved.apiKey, line.product_id, {
-      company_id: resolved.companyNumericId,
-    });
-    assertCompanyMatchesConnection(resolved, product.company_id);
-  }
 
   let centralCustomerId: string | null = null;
   if (input.guestId) {
@@ -181,18 +209,17 @@ export async function createInvoiceDraft(
       include: { customerMapping: true },
     });
     if (!guest) throw new Error("Guest not found");
-    if (guest.customerMapping?.syncStatus === "LINKED" && guest.customerMapping.externalCustomerId) {
-      if (guest.customerMapping.companyId && guest.customerMapping.companyId !== resolved.companyId) {
+    if (isGuestCustomerLinked(guest.customerMapping)) {
+      if (guest.customerMapping!.companyId && guest.customerMapping!.companyId !== resolved.companyId) {
         throw new Error("Guest mapping belongs to a different central company");
       }
-      centralCustomerId = guest.customerMapping.externalCustomerId;
-      // Verify customer still exists for company
-      await client.getCustomer(resolved.apiKey, centralCustomerId, {
+      centralCustomerId = guest.customerMapping!.externalCustomerId;
+      await client.getCustomer(resolved.apiKey, centralCustomerId!, {
         company_id: resolved.companyNumericId,
       });
-    } else if (!input.useCustomerFallback) {
+    } else {
       throw new Error(
-        "Guest is not linked to a central customer. Link or authorize customer fallback first.",
+        "Guest has no valid SIGESC Central customer association. Resolve the mapping before invoicing.",
       );
     }
   }

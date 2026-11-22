@@ -45,7 +45,29 @@
 
 ---
 
-## Phase 4 — Daily operations
+## Phase 4 — Aggregate commerce (done)
+
+- [x] Customers / products / Cotação–Proforma invoices  
+- [x] GuestCustomerMapping + ProductCatalogMapping  
+- [x] Idempotent `external_id` + reconciliation  
+
+See `PHASE4_AGGREGATE_COMMERCE.md`.
+
+---
+
+## Phase 5 — Central pricing & Customer↔Guest lifecycle (done)
+
+- [x] Central-only product/service pricing (no independent operational price)  
+- [x] Guest requires valid Central Customer; Customer may exist without Guest  
+- [x] Individual + bulk convert customers → Guests (max 50)  
+- [x] Historical `NEEDS_RESOLUTION` strategy  
+- [x] Docs + tests + security audit  
+
+See `PHASE5_CENTRAL_PRICING_CUSTOMER_GUEST_LIFECYCLE.md`.
+
+---
+
+## Phase 6 — Daily hotel operations (remaining)
 
 - [ ] Check-in / check-out workflows  
 - [ ] Housekeeping  
@@ -54,16 +76,7 @@
 
 ---
 
-## Phase 5 — SIGESC commercial integration
-
-- [ ] Customer sync via documented `/customers`  
-- [ ] GuestCustomerMapping reconciliation  
-- [ ] Check-out financial handoff (only confirmed endpoints)  
-- [ ] Document remaining gaps  
-
----
-
-## Phase 6 — Reporting & hardening
+## Phase 7 — Reporting & hardening
 
 - [ ] Operational reports + dashboard charts from real data  
 - [ ] Concurrent booking stress tests  
@@ -91,6 +104,6 @@
 
 ## Immediate vs blocked
 
-**Immediate:** Phase 4 against mock Aggregate + local Postgres.  
+**Immediate:** Phase 5 complete against mock Aggregate + local Postgres.  
 
-**Blocked / gated:** Declaring live Aggregate production readiness; sales/invoice automation; modifying main SIGESC Laravel.  
+**Blocked / gated:** Declaring live Aggregate production readiness; payment/publish/stock mutations; modifying main SIGESC Laravel.  

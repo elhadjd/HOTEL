@@ -215,40 +215,25 @@ export async function createCentralCustomerFromGuest(
   return { needsConfirmation: false as const, customer: result.customer, mapping };
 }
 
-export async function unlinkGuestFromCentralCustomer(
+/**
+ * Phase 5: Guests must not be left unlinked.
+ * Re-associate to another valid central customer instead of clearing the mapping.
+ */
+export async function reassociateGuestToCentralCustomer(
   prisma: PrismaClient,
   ctx: TenantContext,
   guestId: string,
+  newCentralCustomerId: number | string,
 ) {
-  const guest = await prisma.guest.findUnique({
-    where: { id: guestId },
-    include: { customerMapping: true },
-  });
-  if (!guest) throw new Error("Guest not found");
-  assertSameInstitution(ctx, guest.institutionId);
-  if (!guest.customerMapping) throw new Error("Guest has no mapping");
+  return linkGuestToCentralCustomer(prisma, ctx, guestId, newCentralCustomerId);
+}
 
-  const mapping = await prisma.guestCustomerMapping.update({
-    where: { guestId },
-    data: {
-      externalCustomerId: null,
-      companyId: null,
-      connectionId: null,
-      syncStatus: "UNLINKED",
-      lastError: null,
-    },
-  });
-
-  await prisma.auditLog.create({
-    data: {
-      institutionId: ctx.institutionId,
-      actorUserId: ctx.userId,
-      action: "UPDATE",
-      entityType: "GuestCustomerMapping",
-      entityId: mapping.id,
-      metadata: { guestId, action: "unlink" },
-    },
-  });
-
-  return mapping;
+/** @deprecated Phase 5 — unlinking leaves Guests invalid; use reassociateGuestToCentralCustomer */
+export async function unlinkGuestFromCentralCustomer(
+  ..._args: [PrismaClient, TenantContext, string]
+): Promise<never> {
+  void _args;
+  throw new Error(
+    "Unlinking a Guest from its SIGESC Central customer is not allowed. Re-associate to another valid customer instead.",
+  );
 }
