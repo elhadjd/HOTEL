@@ -10,6 +10,7 @@ export function ForgotPasswordForm({
     email: string;
     submit: string;
     success: string;
+    notFound: string;
   };
 }) {
   const [email, setEmail] = useState("");
@@ -30,9 +31,18 @@ export function ForgotPasswordForm({
       const data = (await res.json().catch(() => ({}))) as {
         message?: string;
         error?: string;
+        found?: boolean;
       };
       if (res.status === 429) {
         setError(data.error ?? "Too many requests");
+        return;
+      }
+      if (res.status === 404 || data.found === false) {
+        setError(data.message ?? labels.notFound);
+        return;
+      }
+      if (!res.ok) {
+        setError(data.message ?? data.error ?? "Falha ao enviar email");
         return;
       }
       setMessage(data.message ?? labels.success);

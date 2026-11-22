@@ -42,8 +42,8 @@
     "password": "Contraseña",
     "onboarding": "Crear cuenta institucional",
     "forgotPassword": "¿Olvidó la contraseña?",
-    "forgotHelp": "Indique el email registrado. Si existe una cuenta elegible, enviaremos instrucciones.",
-    "forgotGeneric": "Si existe una cuenta elegible para este email, hemos enviado instrucciones de recuperación.",
+    "forgotHelp": "Indique el email registrado. Si la cuenta existe, enviamos el enlace de inmediato.",
+    "forgotGeneric": "Hemos enviado las instrucciones de recuperación a su email.",
     "sendRecovery": "Enviar enlace de recuperación",
     "setPasswordTitle": "Definir contraseña",
     "setPasswordHelp": "En el primer acceso debe crear una contraseña personal fuerte (mín. 10 caracteres, mayúsculas, minúsculas, número y símbolo).",
@@ -63,7 +63,9 @@
     "confirmCreate": "Confirmar y crear cuenta",
     "successTitle": "Cuenta institucional creada",
     "successEmail": "Enviamos la contraseña temporal al email del administrador identificado.",
-    "alreadyLinked": "Institución ya vinculada — conexión Aggregate actualizada."
+    "alreadyLinked": "Institución ya vinculada — conexión Aggregate actualizada.",
+    "forgotSent": "Hemos enviado las instrucciones de recuperación a su email. Revise su bandeja de entrada.",
+    "forgotNotFound": "No existe una cuenta activa con este email. Verifique la dirección e inténtelo de nuevo."
   },
   "dashboard": {
     "title": "Operaciones de hoy",

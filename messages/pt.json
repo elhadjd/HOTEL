@@ -42,8 +42,8 @@
     "password": "Palavra-passe",
     "onboarding": "Criar conta institucional",
     "forgotPassword": "Esqueceu a palavra-passe?",
-    "forgotHelp": "Indique o email registado. Se existir uma conta elegível, enviaremos instruções.",
-    "forgotGeneric": "Se existir uma conta elegível para este email, enviámos instruções de recuperação.",
+    "forgotHelp": "Indique o email registado. Se a conta existir, enviamos o link de recuperação de imediato.",
+    "forgotGeneric": "Enviámos as instruções de recuperação para o seu email.",
     "sendRecovery": "Enviar link de recuperação",
     "setPasswordTitle": "Definir palavra-passe",
     "setPasswordHelp": "No primeiro acesso deve criar uma palavra-passe pessoal forte (mín. 10 caracteres, maiúsculas, minúsculas, número e símbolo).",
@@ -63,7 +63,9 @@
     "confirmCreate": "Confirmar e criar conta",
     "successTitle": "Conta institucional criada",
     "successEmail": "Enviámos a palavra-passe temporária para o email do administrador identificado.",
-    "alreadyLinked": "Instituição já ligada — ligação Aggregate actualizada."
+    "alreadyLinked": "Instituição já ligada — ligação Aggregate actualizada.",
+    "forgotSent": "Enviámos as instruções de recuperação para o seu email. Verifique a caixa de entrada.",
+    "forgotNotFound": "Não existe conta activa com este email. Verifique o endereço e tente novamente."
   },
   "dashboard": {
     "title": "Operações de hoje",

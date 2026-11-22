@@ -10,7 +10,7 @@ import {
   onboardingChallengeTtlMs,
   temporaryPasswordTtlMs,
 } from "@/modules/auth/password";
-import { enqueueEmail, scheduleEmailDispatch } from "@/modules/email/outbox";
+import { enqueueEmail, flushEmailOutboxInRequest } from "@/modules/email/outbox";
 import { slugify } from "@/shared/utils";
 import {
   identifyAuthorizedAdministrator,
@@ -402,9 +402,9 @@ export async function confirmOnboardingChallenge(
     } satisfies ConfirmOnboardingResult;
   });
 
-  // Email only after successful commit
+  // Send email in this request after successful commit (not a background job)
   if (result.emailQueued) {
-    scheduleEmailDispatch(prisma);
+    await flushEmailOutboxInRequest(prisma);
   }
 
   return result;

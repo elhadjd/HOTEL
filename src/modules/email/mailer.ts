@@ -15,6 +15,8 @@ export interface Mailer {
 
 class MockMailer implements Mailer {
   public readonly sent: SendMailInput[] = [];
+  /** Full text bodies for test assertions only — never logged */
+  public readonly sentTexts: string[] = [];
 
   async send(input: SendMailInput) {
     this.sent.push({
@@ -23,6 +25,7 @@ class MockMailer implements Mailer {
       html: "[redacted-html]",
       text: "[redacted-text]",
     });
+    this.sentTexts.push(input.text);
     logger.info("email.mock.sent", { to: input.to, subject: input.subject });
     return { messageId: `mock-${Date.now()}` };
   }

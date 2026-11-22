@@ -25,7 +25,8 @@ export default async function ForgotPasswordPage({
           labels={{
             email: t("auth.email"),
             submit: t("auth.sendRecovery"),
-            success: t("auth.forgotGeneric"),
+            success: t("auth.forgotSent"),
+            notFound: t("auth.forgotNotFound"),
           }}
         />
         <p className="font-ui mt-6 text-sm text-stone-500">
