@@ -1,4 +1,9 @@
-const DEFAULT_ALLOWED = ["app.sisgesc.net", "app.zyvoerp.com"];
+const DEFAULT_ALLOWED = [
+  "app.sisgesc.net",
+  "admin.sisgesc.net",
+  "app.zyvoerp.com",
+  "admin.zyvoerp.com",
+];
 
 export function getAllowedAggregateHosts(): string[] {
   const fromEnv = process.env.SIGESC_AGGREGATE_ALLOWED_HOSTS?.split(",")

@@ -21,7 +21,7 @@ X-Api-Key: mca_…
 
 **Key format:** `mca_[A-Za-z0-9]+` (min length 20)
 
-**Allowlisted hosts (Escolar):** `app.sisgesc.net`, `app.zyvoerp.com` (HTTPS only)
+**Allowlisted hosts (Escolar):** `app.sisgesc.net`, `admin.sisgesc.net`, `app.zyvoerp.com`, `admin.zyvoerp.com` (HTTPS only; override via `SIGESC_AGGREGATE_ALLOWED_HOSTS`)
 
 ### Onboarding / users
 
