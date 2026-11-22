@@ -11,37 +11,37 @@
 
 ---
 
-## Phase 1 — Foundation (current)
+## Phase 1 — Foundation (done)
 
-- [ ] Next.js + TS strict + Tailwind + design tokens  
-- [ ] Premium app shell (sidebar, topbar, i18n, empty/loading states)  
-- [ ] PostgreSQL + Prisma schema + migrate  
-- [ ] Env validation, logging, error helpers  
-- [ ] Auth.js foundation + RBAC + tenant resolver  
-- [ ] Aggregate module: port, mock, crypto, `getAggregateClient`  
-- [ ] Vitest unit tests (crypto, mock authorize, tenant helpers)  
-- [ ] Docker Compose Postgres  
-- [ ] Seed data (dev only)  
-
----
-
-## Phase 2 — Institutional onboarding
-
-- [ ] `/onboarding` UI (API key entry)  
-- [ ] `POST /api/v1/onboarding/connect` validate-then-persist  
-- [ ] Institution + connection + user import  
-- [ ] Integration status page `/integrations/sigesc`  
-- [ ] Mock integration tests  
+- [x] Next.js + TS strict + Tailwind + design tokens  
+- [x] Premium app shell (sidebar, topbar, i18n, empty/loading states)  
+- [x] PostgreSQL + Prisma schema + migrate  
+- [x] Env validation, logging, error helpers  
+- [x] Auth.js foundation + RBAC + tenant resolver  
+- [x] Aggregate module: port, mock, crypto, `getAggregateClient`  
+- [x] Vitest unit tests (crypto, mock authorize, tenant helpers)  
+- [x] Docker Compose Postgres  
+- [x] Seed data (dev only)  
 
 ---
 
-## Phase 3 — Hotel operations
+## Phase 2 — Institutional onboarding (done)
 
-- [ ] Hotels + settings  
-- [ ] Room categories + rooms (grid/list/floor)  
-- [ ] Guests  
-- [ ] Reservations + availability conflicts  
-- [ ] Calendar (day/week/month)  
+- [x] `/onboarding` UI (API key entry + confirm)  
+- [x] `POST /api/v1/onboarding/validate` + `/confirm`  
+- [x] Institution + connection + user import (admin-only privileges)  
+- [x] Email outbox + first-login + password recovery  
+- [x] Mock integration / auth security tests  
+
+---
+
+## Phase 3 — Hotel operations (done)
+
+- [x] Hotels + settings  
+- [x] Room categories + rooms (grid/list/floor)  
+- [x] Guests  
+- [x] Reservations + availability conflicts  
+- [x] Calendar (day/week/month)  
 
 ---
 
@@ -72,7 +72,7 @@
 
 ---
 
-## Dependency decisions (locked for Phase 1)
+## Dependency decisions (locked)
 
 | Package | Version policy |
 |---------|----------------|
@@ -83,13 +83,14 @@
 | next-intl | 3.x |
 | zod | 3.x |
 | vitest | 2.x |
-| tailwindcss | 3.4.x |
-| bcryptjs | 2.x |
+| tailwindcss | 4.x |
+| bcryptjs | 3.x / compatible |
+| nodemailer | 6.x |
 
 ---
 
 ## Immediate vs blocked
 
-**Immediate:** Phases 1–4 against mock Aggregate + local Postgres.  
+**Immediate:** Phase 4 against mock Aggregate + local Postgres.  
 
 **Blocked / gated:** Declaring live Aggregate production readiness; sales/invoice automation; modifying main SIGESC Laravel.  

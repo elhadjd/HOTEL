@@ -3,6 +3,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getDashboardMetrics } from "@/modules/reporting/dashboard-metrics";
+import { requirePageTenant } from "@/server/page-auth";
 
 function Metric({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
@@ -22,11 +23,12 @@ export default async function DashboardPage({
   const { locale } = await params;
   setRequestLocale(locale);
   const t = await getTranslations();
+  const ctx = await requirePageTenant("dashboard.read");
 
   let metrics;
   let dbUnavailable = false;
   try {
-    metrics = await getDashboardMetrics();
+    metrics = await getDashboardMetrics(ctx.institutionId);
   } catch {
     dbUnavailable = true;
     metrics = {
@@ -49,7 +51,7 @@ export default async function DashboardPage({
         <div>
           <p className="font-ui max-w-2xl text-sm text-stone-500">{t("dashboard.subtitle")}</p>
         </div>
-        <Badge tone="accent">Phase 1 foundation</Badge>
+        <Badge tone="accent">Phase 3 operations</Badge>
       </div>
 
       {dbUnavailable ? (

@@ -50,12 +50,8 @@ export async function resolveTenantContext(userId: string, institutionId?: strin
 }
 
 export function assertPermission(ctx: TenantContext, permission: string): void {
-  if (!ctx.permissions.includes(permission) && ctx.roleCode !== "hotel_admin") {
-    // hotel_admin already has all; still allow explicit list
-    if (!ctx.permissions.includes(permission)) {
-      throw new TenantAccessError(`Missing permission: ${permission}`);
-    }
-  }
+  if (ctx.permissions.includes(permission)) return;
+  throw new TenantAccessError(`Missing permission: ${permission}`);
 }
 
 export function assertSameInstitution(ctx: TenantContext, resourceInstitutionId: string): void {
