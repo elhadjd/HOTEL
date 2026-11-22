@@ -108,8 +108,9 @@ async function main() {
     },
   ];
 
+  const roomRecords: Record<string, string> = {};
   for (const room of rooms) {
-    await prisma.room.upsert({
+    const row = await prisma.room.upsert({
       where: { hotelId_code: { hotelId: hotel.id, code: room.code } },
       create: {
         hotelId: hotel.id,
@@ -128,13 +129,89 @@ async function main() {
         maintenanceStatus: room.maintenanceStatus ?? "OK",
       },
     });
+    roomRecords[room.code] = row.id;
   }
+
+  // Demo guest — operational profile only; SIGESC financial mapping stays UNLINKED
+  const guest = await prisma.guest.upsert({
+    where: { id: "00000000-0000-4000-8000-000000000001" },
+    create: {
+      id: "00000000-0000-4000-8000-000000000001",
+      institutionId: institution.id,
+      firstName: "Ana",
+      lastName: "Dos Santos",
+      email: "ana.santos@example.ao",
+      phone: "+244923111222",
+      country: "Angola",
+    },
+    update: {
+      firstName: "Ana",
+      lastName: "Dos Santos",
+      email: "ana.santos@example.ao",
+      phone: "+244923111222",
+    },
+  });
+
+  await prisma.guestCustomerMapping.upsert({
+    where: { guestId: guest.id },
+    create: {
+      guestId: guest.id,
+      institutionId: institution.id,
+      syncStatus: "UNLINKED",
+    },
+    update: { syncStatus: "UNLINKED" },
+  });
+
+  const arrival = new Date(Date.UTC(2026, 11, 10));
+  const departure = new Date(Date.UTC(2026, 11, 14));
+  const reservedRoomId = roomRecords["201"]!;
+
+  const reservation = await prisma.reservation.upsert({
+    where: { hotelId_code: { hotelId: hotel.id, code: "RSV-DEMO01" } },
+    create: {
+      hotelId: hotel.id,
+      institutionId: institution.id,
+      code: "RSV-DEMO01",
+      status: "CONFIRMED",
+      arrivalDate: arrival,
+      departureDate: departure,
+      adults: 2,
+      children: 0,
+      source: "seed",
+      rooms: {
+        create: [
+          {
+            roomId: reservedRoomId,
+            arrivalDate: arrival,
+            departureDate: departure,
+          },
+        ],
+      },
+      guests: {
+        create: [{ guestId: guest.id, isPrimary: true }],
+      },
+      events: {
+        create: {
+          fromStatus: null,
+          toStatus: "CONFIRMED",
+          note: "Seed demo reservation",
+          actorUserId: admin.id,
+        },
+      },
+    },
+    update: {
+      status: "CONFIRMED",
+      arrivalDate: arrival,
+      departureDate: departure,
+    },
+  });
 
   console.log("Seed complete:", {
     institution: institution.slug,
     hotel: hotel.code,
     admin: admin.email,
-    password: "HotelariaDemo1!",
+    guest: guest.email,
+    reservation: reservation.code,
   });
 }
 
