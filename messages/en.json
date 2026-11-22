@@ -22,7 +22,8 @@
     "settings": "Settings",
     "centralCustomers": "SIGESC Customers",
     "centralProducts": "SIGESC Catalog",
-    "centralInvoices": "SIGESC Quotes"
+    "centralInvoices": "SIGESC Quotes",
+    "stays": "Active stays"
   },
   "common": {
     "search": "Search reservations, guests, rooms…",

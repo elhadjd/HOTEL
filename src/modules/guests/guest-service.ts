@@ -38,9 +38,10 @@ export async function listGuests(
       ...(q
         ? {
             OR: [
-              { firstName: { contains: q, mode: "insensitive" } },
-              { lastName: { contains: q, mode: "insensitive" } },
-              { email: { contains: q, mode: "insensitive" } },
+              // MySQL: case-insensitive collation (utf8mb4_unicode_ci) — no Prisma `mode: insensitive`
+              { firstName: { contains: q } },
+              { lastName: { contains: q } },
+              { email: { contains: q } },
               { phone: { contains: q } },
             ],
           }

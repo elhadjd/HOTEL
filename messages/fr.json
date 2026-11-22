@@ -22,7 +22,8 @@
     "settings": "Paramètres",
     "centralCustomers": "Clients SIGESC",
     "centralProducts": "Catalogue SIGESC",
-    "centralInvoices": "Devis SIGESC"
+    "centralInvoices": "Devis SIGESC",
+    "stays": "Séjours"
   },
   "common": {
     "search": "Rechercher réservations, clients, chambres…",

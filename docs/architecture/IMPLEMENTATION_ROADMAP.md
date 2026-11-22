@@ -67,12 +67,15 @@ See `PHASE5_CENTRAL_PRICING_CUSTOMER_GUEST_LIFECYCLE.md`.
 
 ---
 
-## Phase 6 — Daily hotel operations (remaining)
+## Phase 6 — Stay lifecycle + MySQL (done)
 
-- [ ] Check-in / check-out workflows  
-- [ ] Housekeeping  
-- [ ] Maintenance  
-- [ ] Room activity history  
+- [x] MySQL 8.0 Prisma provider + baseline migration  
+- [x] Check-in / check-out / active stays  
+- [x] Room transfer, companions, extensions  
+- [x] Housekeeping + maintenance  
+- [x] Stay operational account + Aggregate handoff  
+
+See `PHASE6_STAY_LIFECYCLE_MYSQL.md`.
 
 ---
 
