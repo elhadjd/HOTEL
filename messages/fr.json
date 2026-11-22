@@ -42,8 +42,8 @@
     "password": "Mot de passe",
     "onboarding": "Créer un compte institutionnel",
     "forgotPassword": "Mot de passe oublié ?",
-    "forgotHelp": "Saisissez l’email enregistré. Si un compte éligible existe, nous enverrons des instructions.",
-    "forgotGeneric": "Si un compte éligible existe pour cet email, nous avons envoyé des instructions de récupération.",
+    "forgotHelp": "Saisissez l’email enregistré. Si le compte existe, nous envoyons le lien immédiatement.",
+    "forgotGeneric": "Nous avons envoyé les instructions de récupération à votre email.",
     "sendRecovery": "Envoyer le lien de récupération",
     "setPasswordTitle": "Définir le mot de passe",
     "setPasswordHelp": "Au premier accès, créez un mot de passe personnel fort (min. 10 caractères, majuscule, minuscule, chiffre et symbole).",
@@ -63,7 +63,9 @@
     "confirmCreate": "Confirmer et créer le compte",
     "successTitle": "Compte institutionnel créé",
     "successEmail": "Nous avons envoyé le mot de passe temporaire à l’email de l’administrateur identifié.",
-    "alreadyLinked": "Institution déjà liée — connexion Aggregate actualisée."
+    "alreadyLinked": "Institution déjà liée — connexion Aggregate actualisée.",
+    "forgotSent": "Nous avons envoyé les instructions de récupération à votre email. Vérifiez votre boîte de réception.",
+    "forgotNotFound": "Aucun compte actif n’existe pour cet email. Vérifiez l’adresse et réessayez."
   },
   "dashboard": {
     "title": "Opérations du jour",

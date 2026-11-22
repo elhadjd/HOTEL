@@ -2,17 +2,18 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { verifyPassword } from "@/modules/auth/password";
 import {
+  EMAIL_NOT_FOUND_MESSAGE,
+  EMAIL_SENT_MESSAGE,
   changePasswordMandatory,
   requestPasswordReset,
   resetPasswordWithToken,
 } from "@/modules/auth/password-recovery";
-import { dispatchEmailOutbox, resetMailer, getMockMailer } from "@/modules/email";
+import { resetMailer, getMockMailer } from "@/modules/email";
 import {
   confirmOnboardingChallenge,
   validateOnboardingKey,
 } from "./onboarding-service";
 import { MOCK_VALID_MCA_KEY, MOCK_REVOKED_MCA_KEY, resetAggregateClient } from "./index";
-import { decryptAggregateKey } from "./crypto";
 
 const hasDb = Boolean(process.env.DATABASE_URL);
 
@@ -20,6 +21,15 @@ function sampleStrongPassword(tag: string): string {
   return ["New", tag, "Pass", String(1), "!"].join("");
 }
 
+/** Extract opaque reset token from mock mailer body (secret wiped from outbox after send). */
+function extractResetTokenFromMailer(): string {
+  const texts = getMockMailer()?.sentTexts ?? [];
+  for (const text of texts) {
+    const match = text.match(/reset-password\?token=([^\s&]+)/);
+    if (match?.[1]) return decodeURIComponent(match[1]);
+  }
+  throw new Error("Reset token not found in mock mailer texts");
+}
 
 describe.runIf(hasDb)("Phase 2 onboarding + auth integration", () => {
   const prisma = new PrismaClient();
@@ -104,20 +114,15 @@ describe.runIf(hasDb)("Phase 2 onboarding + auth integration", () => {
     expect(mgrMembership.role.code).not.toBe("hotel_admin");
     expect(mgrMembership.status).toBe("INVITED");
 
-    const outboxPending = await prisma.emailOutbox.findMany({
+    // Email was sent synchronously in the confirm request (not a background job)
+    const outbox = await prisma.emailOutbox.findMany({
       where: { template: "ONBOARDING_TEMP_PASSWORD" },
     });
-    expect(outboxPending).toHaveLength(1);
-    expect(outboxPending[0]!.toEmail).toBe("sofia@baia.ao");
-    expect(JSON.stringify(outboxPending[0]!.payloadJson)).not.toMatch(/mca_/i);
-
-    // Post-commit dispatch may already have run via scheduleEmailDispatch
-    await dispatchEmailOutbox(prisma);
-    const wiped = await prisma.emailOutbox.findFirstOrThrow({
-      where: { template: "ONBOARDING_TEMP_PASSWORD" },
-    });
-    expect(wiped.status).toBe("SENT");
-    expect(wiped.encryptedSecret).toBeNull();
+    expect(outbox).toHaveLength(1);
+    expect(outbox[0]!.toEmail).toBe("sofia@baia.ao");
+    expect(outbox[0]!.status).toBe("SENT");
+    expect(outbox[0]!.encryptedSecret).toBeNull();
+    expect(JSON.stringify(outbox[0]!.payloadJson)).not.toMatch(/mca_/i);
 
     const sent = getMockMailer()?.sent ?? [];
     expect(sent.some((m) => m.to === "sofia@baia.ao")).toBe(true);
@@ -139,7 +144,7 @@ describe.runIf(hasDb)("Phase 2 onboarding + auth integration", () => {
     expect(updated.passwordHash).not.toBe(previousHash);
   });
 
-  it("password recovery is generic, single-use, and revokes sessions", async () => {
+  it("password recovery reports missing email, sends when found, single-use", async () => {
     const preview = await validateOnboardingKey(prisma, MOCK_VALID_MCA_KEY);
     await confirmOnboardingChallenge(prisma, preview.challengeToken);
     await changePasswordMandatory(
@@ -149,20 +154,27 @@ describe.runIf(hasDb)("Phase 2 onboarding + auth integration", () => {
     );
 
     const unknown = await requestPasswordReset(prisma, "nobody@example.com");
+    expect(unknown.found).toBe(false);
+    expect(unknown.message).toBe(EMAIL_NOT_FOUND_MESSAGE);
+
     const known = await requestPasswordReset(prisma, "sofia@baia.ao");
-    expect(unknown.message).toBe(known.message);
+    expect(known.found).toBe(true);
+    expect(known.message).toBe(EMAIL_SENT_MESSAGE);
+    expect(unknown.message).not.toBe(known.message);
 
     const tokenRow = await prisma.passwordResetToken.findFirstOrThrow({
       where: { usedAt: null },
       orderBy: { createdAt: "desc" },
     });
-    // Recover plaintext from outbox encrypted secret
-    // Outbox may already be SENT if the background dispatcher won the race.
+
     const mail = await prisma.emailOutbox.findFirstOrThrow({
       where: { template: "PASSWORD_RECOVERY" },
       orderBy: { createdAt: "desc" },
     });
-    const token = decryptAggregateKey(mail.encryptedSecret!);
+    expect(mail.status).toBe("SENT");
+    expect(mail.encryptedSecret).toBeNull();
+
+    const token = extractResetTokenFromMailer();
 
     const recovered = sampleStrongPassword("Recovered");
     await resetPasswordWithToken(prisma, token, recovered);

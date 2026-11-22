@@ -42,8 +42,8 @@
     "password": "Password",
     "onboarding": "Create institutional account",
     "forgotPassword": "Forgot password?",
-    "forgotHelp": "Enter your registered email. If an eligible account exists, we will send instructions.",
-    "forgotGeneric": "If an eligible account exists for this email, we have sent recovery instructions.",
+    "forgotHelp": "Enter your registered email. If the account exists, we send the recovery link immediately.",
+    "forgotGeneric": "We have sent recovery instructions to your email.",
     "sendRecovery": "Send recovery link",
     "setPasswordTitle": "Set password",
     "setPasswordHelp": "On first access you must create a strong personal password (min. 10 characters, upper, lower, number and symbol).",
@@ -63,7 +63,9 @@
     "confirmCreate": "Confirm and create account",
     "successTitle": "Institutional account created",
     "successEmail": "We sent the temporary password to the identified administrator’s email.",
-    "alreadyLinked": "Institution already linked — Aggregate connection refreshed."
+    "alreadyLinked": "Institution already linked — Aggregate connection refreshed.",
+    "forgotSent": "We have sent recovery instructions to your email. Check your inbox.",
+    "forgotNotFound": "No active account exists for this email. Check the address and try again."
   },
   "dashboard": {
     "title": "Today’s operations",

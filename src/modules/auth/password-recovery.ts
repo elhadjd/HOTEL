@@ -7,19 +7,24 @@ import {
   validatePasswordStrength,
 } from "@/modules/auth/password";
 import { enforceRateLimit, RateLimitError } from "@/modules/auth/rate-limit";
-import { enqueueEmail, scheduleEmailDispatch } from "@/modules/email/outbox";
+import { enqueueAndSendEmail } from "@/modules/email/outbox";
 import { logger } from "@/server/logger";
 
-const GENERIC_MESSAGE =
-  "Se existir uma conta elegível para este email, enviámos instruções de recuperação.";
+const EMAIL_NOT_FOUND_MESSAGE =
+  "Não existe conta activa com este email. Verifique o endereço e tente novamente.";
+const EMAIL_SENT_MESSAGE =
+  "Enviámos as instruções de recuperação para o seu email. Verifique a caixa de entrada.";
 
-export { GENERIC_MESSAGE, RateLimitError };
+export { EMAIL_NOT_FOUND_MESSAGE, EMAIL_SENT_MESSAGE, RateLimitError };
+
+/** @deprecated Prefer EMAIL_SENT_MESSAGE / EMAIL_NOT_FOUND_MESSAGE */
+export const GENERIC_MESSAGE = EMAIL_SENT_MESSAGE;
 
 export async function requestPasswordReset(
   prisma: PrismaClient,
   emailRaw: string,
   requestIp?: string | null,
-): Promise<{ message: string }> {
+): Promise<{ message: string; found: boolean }> {
   const email = emailRaw.trim().toLowerCase();
 
   try {
@@ -41,7 +46,7 @@ export async function requestPasswordReset(
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !user.active) {
-    return { message: GENERIC_MESSAGE };
+    return { message: EMAIL_NOT_FOUND_MESSAGE, found: false };
   }
 
   const token = generateOpaqueToken(32);
@@ -49,7 +54,6 @@ export async function requestPasswordReset(
   const expiresAt = new Date(Date.now() + passwordResetTtlMs());
 
   await prisma.$transaction(async (tx) => {
-    // Invalidate previous unused tokens
     await tx.passwordResetToken.updateMany({
       where: { userId: user.id, usedAt: null },
       data: { usedAt: new Date() },
@@ -69,20 +73,6 @@ export async function requestPasswordReset(
       select: { institutionId: true },
     });
 
-    await enqueueEmail(tx, {
-      institutionId: membership?.institutionId,
-      userId: user.id,
-      template: "PASSWORD_RECOVERY",
-      toEmail: user.email,
-      subject: "SIGESC Hotelaria — Recuperação de palavra-passe",
-      // Never store the opaque token in payloadJson — only encryptedSecret
-      payloadJson: {
-        toName: user.name,
-        resetPath: "/reset-password",
-      },
-      plaintextSecret: token,
-    });
-
     await tx.auditLog.create({
       data: {
         institutionId: membership?.institutionId,
@@ -96,9 +86,27 @@ export async function requestPasswordReset(
     });
   });
 
-  scheduleEmailDispatch(prisma);
+  const membership = await prisma.membership.findFirst({
+    where: { userId: user.id, status: { in: ["ACTIVE", "INVITED"] } },
+    select: { institutionId: true },
+  });
+
+  // Send in this request — do not defer to a background job
+  await enqueueAndSendEmail(prisma, {
+    institutionId: membership?.institutionId,
+    userId: user.id,
+    template: "PASSWORD_RECOVERY",
+    toEmail: user.email,
+    subject: "SIGESC Hotelaria — Recuperação de palavra-passe",
+    payloadJson: {
+      toName: user.name,
+      resetPath: "/reset-password",
+    },
+    plaintextSecret: token,
+  });
+
   logger.info("auth.password_reset.requested", { userId: user.id });
-  return { message: GENERIC_MESSAGE };
+  return { message: EMAIL_SENT_MESSAGE, found: true };
 }
 
 export async function resetPasswordWithToken(
@@ -118,6 +126,10 @@ export async function resetPasswordWithToken(
   }
 
   const passwordHash = await hashPassword(newPassword);
+
+  let userEmail = "";
+  let userName = "";
+  let institutionId: string | null = null;
 
   await prisma.$transaction(async (tx) => {
     const fresh = await tx.passwordResetToken.findUnique({ where: { id: row.id } });
@@ -141,6 +153,8 @@ export async function resetPasswordWithToken(
         sessionVersion: { increment: 1 },
       },
     });
+    userEmail = user.email;
+    userName = user.name;
 
     await tx.session.deleteMany({ where: { userId: user.id } });
 
@@ -148,15 +162,7 @@ export async function resetPasswordWithToken(
       where: { userId: user.id },
       select: { institutionId: true },
     });
-
-    await enqueueEmail(tx, {
-      institutionId: membership?.institutionId,
-      userId: user.id,
-      template: "PASSWORD_CHANGED",
-      toEmail: user.email,
-      subject: "SIGESC Hotelaria — Palavra-passe actualizada",
-      payloadJson: { toName: user.name },
-    });
+    institutionId = membership?.institutionId ?? null;
 
     await tx.auditLog.create({
       data: {
@@ -170,7 +176,15 @@ export async function resetPasswordWithToken(
     });
   });
 
-  scheduleEmailDispatch(prisma);
+  await enqueueAndSendEmail(prisma, {
+    institutionId,
+    userId: row.userId,
+    template: "PASSWORD_CHANGED",
+    toEmail: userEmail,
+    subject: "SIGESC Hotelaria — Palavra-passe actualizada",
+    payloadJson: { toName: userName },
+  });
+
   return { ok: true };
 }
 
@@ -185,6 +199,10 @@ export async function changePasswordMandatory(
   }
 
   const passwordHash = await hashPassword(newPassword);
+
+  let userEmail = "";
+  let userName = "";
+  let institutionId: string | null = null;
 
   await prisma.$transaction(async (tx) => {
     const user = await tx.user.findUnique({ where: { id: userId } });
@@ -209,6 +227,8 @@ export async function changePasswordMandatory(
         sessionVersion: { increment: 1 },
       },
     });
+    userEmail = user.email;
+    userName = user.name;
 
     await tx.session.deleteMany({ where: { userId } });
 
@@ -216,15 +236,7 @@ export async function changePasswordMandatory(
       where: { userId },
       select: { institutionId: true },
     });
-
-    await enqueueEmail(tx, {
-      institutionId: membership?.institutionId,
-      userId,
-      template: "PASSWORD_CHANGED",
-      toEmail: user.email,
-      subject: "SIGESC Hotelaria — Palavra-passe actualizada",
-      payloadJson: { toName: user.name },
-    });
+    institutionId = membership?.institutionId ?? null;
 
     await tx.auditLog.create({
       data: {
@@ -238,6 +250,14 @@ export async function changePasswordMandatory(
     });
   });
 
-  scheduleEmailDispatch(prisma);
+  await enqueueAndSendEmail(prisma, {
+    institutionId,
+    userId,
+    template: "PASSWORD_CHANGED",
+    toEmail: userEmail,
+    subject: "SIGESC Hotelaria — Palavra-passe actualizada",
+    payloadJson: { toName: userName },
+  });
+
   return { ok: true };
 }

@@ -119,13 +119,46 @@ export async function dispatchEmailOutbox(
   return { sent, failed };
 }
 
-/** Fire-and-forget best effort after commit — tests can await dispatchEmailOutbox directly. */
-export function scheduleEmailDispatch(prisma: PrismaClient): void {
-  queueMicrotask(() => {
-    void dispatchEmailOutbox(prisma).catch((err) => {
-      logger.error("email.outbox.schedule_failed", {
-        message: err instanceof Error ? err.message : "unknown",
-      });
-    });
-  });
+/**
+ * Send pending outbox emails synchronously in the current request.
+ * Prefer this over background jobs so the API response reflects send success/failure.
+ */
+export async function flushEmailOutboxInRequest(
+  prisma: PrismaClient,
+  limit = 20,
+): Promise<{ sent: number; failed: number }> {
+  return dispatchEmailOutbox(prisma, limit);
+}
+
+/**
+ * @deprecated Use flushEmailOutboxInRequest — email must be sent in-request, not as a job.
+ * Kept as a thin alias that awaits dispatch for any accidental callers.
+ */
+export async function scheduleEmailDispatch(prisma: PrismaClient): Promise<void> {
+  await flushEmailOutboxInRequest(prisma);
+}
+
+/** Enqueue then immediately send; throws if the send fails. */
+export async function enqueueAndSendEmail(
+  prisma: PrismaClient,
+  input: {
+    institutionId?: string | null;
+    userId?: string | null;
+    template: EmailTemplateKind;
+    toEmail: string;
+    subject: string;
+    payloadJson: Record<string, unknown>;
+    plaintextSecret?: string;
+  },
+): Promise<{ outboxId: string }> {
+  const row = await enqueueEmail(prisma, input);
+  const result = await dispatchEmailOutbox(prisma, 5);
+  const fresh = await prisma.emailOutbox.findUnique({ where: { id: row.id } });
+  if (!fresh || fresh.status !== "SENT") {
+    throw new Error(
+      fresh?.lastError?.trim() ||
+        `Failed to send email (${input.template})${result.failed ? ` — ${result.failed} failed` : ""}`,
+    );
+  }
+  return { outboxId: row.id };
 }
