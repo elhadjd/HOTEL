@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
@@ -94,16 +94,28 @@ enum ReservationStatus {
 
 enum StayStatus {
   ACTIVE
+  CHECKOUT_PENDING
   COMPLETED
   CANCELLED
 }
 
 enum HousekeepingTaskStatus {
   PENDING
+  ASSIGNED
   IN_PROGRESS
-  DONE
-  INSPECTED
+  COMPLETED
+  INSPECTION_REQUIRED
+  REJECTED
   CANCELLED
+}
+
+enum HousekeepingTaskKind {
+  CLEANING
+  INSPECTION
+  PREPARATION
+  LINEN_CHANGE
+  MAINTENANCE_CLEAN
+  TURNOVER
 }
 
 enum HousekeepingPriority {
@@ -117,8 +129,34 @@ enum MaintenanceRequestStatus {
   OPEN
   ASSIGNED
   IN_PROGRESS
+  WAITING_PARTS
   RESOLVED
   CANCELLED
+}
+
+enum StayChargeKind {
+  ACCOMMODATION
+  EXTRA_SERVICE
+  PRODUCT
+  FEE
+  DISCOUNT
+  ADJUSTMENT
+}
+
+enum StayChargeStatus {
+  PENDING
+  CONFIRMED
+  VOIDED
+  HANDED_OFF
+}
+
+enum FinancialHandoffStatus {
+  NOT_REQUIRED
+  PENDING
+  REQUESTED
+  CENTRAL_CONFIRMED
+  RECONCILIATION_PENDING
+  FAILED
 }
 
 enum MaintenancePriority {
@@ -546,7 +584,8 @@ model Guest {
   documents        GuestDocument[]
   customerMapping  GuestCustomerMapping?
   reservationGuests ReservationGuest[]
-  stays            Stay[]
+  stays             Stay[]
+  stayCompanions    StayCompanion[]
 
   @@index([institutionId, lastName, firstName])
   @@index([institutionId, email])
@@ -766,28 +805,110 @@ model ReservationEvent {
 }
 
 model Stay {
-  id            String     @id @default(uuid())
-  hotelId       String     @map("hotel_id")
-  reservationId String     @unique @map("reservation_id")
-  roomId        String     @map("room_id")
-  guestId       String     @map("guest_id")
-  status        StayStatus @default(ACTIVE)
-  actualArrival DateTime   @map("actual_arrival")
-  actualDeparture DateTime? @map("actual_departure")
-  observations  String?    @db.Text
-  createdAt     DateTime   @default(now()) @map("created_at")
-  updatedAt     DateTime   @updatedAt @map("updated_at")
+  id                String     @id @default(uuid())
+  hotelId           String     @map("hotel_id")
+  institutionId     String     @map("institution_id")
+  reservationId     String     @unique @map("reservation_id")
+  roomId            String     @map("room_id")
+  guestId           String     @map("guest_id")
+  status            StayStatus @default(ACTIVE)
+  actualArrival     DateTime   @map("actual_arrival")
+  expectedDeparture DateTime   @map("expected_departure") @db.Date
+  actualDeparture   DateTime?  @map("actual_departure")
+  originalDeparture DateTime?  @map("original_departure") @db.Date
+  observations      String?    @db.Text
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
 
-  hotel       Hotel          @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  reservation Reservation    @relation(fields: [reservationId], references: [id], onDelete: Restrict)
-  room        Room           @relation(fields: [roomId], references: [id], onDelete: Restrict)
-  guest       Guest          @relation(fields: [guestId], references: [id], onDelete: Restrict)
-  checkIn     CheckInRecord?
-  checkOut    CheckOutRecord?
+  hotel        Hotel               @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  reservation  Reservation         @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  room         Room                @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  guest        Guest               @relation(fields: [guestId], references: [id], onDelete: Restrict)
+  checkIn      CheckInRecord?
+  checkOut     CheckOutRecord?
+  companions   StayCompanion[]
+  roomHistory  StayRoomHistory[]
+  dateChanges  StayDateChange[]
+  accountLines StayAccountCharge[]
 
   @@index([hotelId, status])
+  @@index([institutionId, status])
   @@index([roomId, status])
+  @@index([institutionId, expectedDeparture])
   @@map("stays")
+}
+
+model StayCompanion {
+  id        String    @id @default(uuid())
+  stayId    String    @map("stay_id")
+  guestId   String    @map("guest_id")
+  addedAt   DateTime  @default(now()) @map("added_at")
+  removedAt DateTime? @map("removed_at")
+  notes     String?   @db.VarChar(500)
+
+  stay  Stay  @relation(fields: [stayId], references: [id], onDelete: Cascade)
+  guest Guest @relation(fields: [guestId], references: [id], onDelete: Restrict)
+
+  @@unique([stayId, guestId])
+  @@index([stayId, removedAt])
+  @@map("stay_companions")
+}
+
+model StayRoomHistory {
+  id           String   @id @default(uuid())
+  stayId       String   @map("stay_id")
+  fromRoomId   String   @map("from_room_id")
+  toRoomId     String   @map("to_room_id")
+  reason       String   @db.VarChar(500)
+  actorUserId  String?  @map("actor_user_id")
+  transferredAt DateTime @default(now()) @map("transferred_at")
+
+  stay Stay @relation(fields: [stayId], references: [id], onDelete: Cascade)
+
+  @@index([stayId, transferredAt])
+  @@map("stay_room_history")
+}
+
+model StayDateChange {
+  id              String   @id @default(uuid())
+  stayId          String   @map("stay_id")
+  kind            String   @db.VarChar(32)
+  previousDeparture DateTime @map("previous_departure") @db.Date
+  newDeparture    DateTime @map("new_departure") @db.Date
+  reason          String?  @db.VarChar(500)
+  actorUserId     String?  @map("actor_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  stay Stay @relation(fields: [stayId], references: [id], onDelete: Cascade)
+
+  @@index([stayId, createdAt])
+  @@map("stay_date_changes")
+}
+
+model StayAccountCharge {
+  id                 String           @id @default(uuid())
+  stayId             String           @map("stay_id")
+  institutionId      String           @map("institution_id")
+  kind               StayChargeKind   @default(EXTRA_SERVICE)
+  status             StayChargeStatus @default(PENDING)
+  description        String           @db.VarChar(255)
+  quantity           Decimal          @default(1) @db.Decimal(12, 3)
+  /** Verified central unit price — never browser-authored for mapped products */
+  unitPrice          Decimal          @map("unit_price") @db.Decimal(14, 2)
+  currency           String           @default("AOA") @db.Char(3)
+  catalogMappingId   String?          @map("catalog_mapping_id")
+  centralProductId   String?          @map("central_product_id") @db.VarChar(64)
+  invoiceIntegrationId String?        @map("invoice_integration_id")
+  actorUserId        String?          @map("actor_user_id")
+  voidReason         String?          @map("void_reason") @db.VarChar(500)
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  stay Stay @relation(fields: [stayId], references: [id], onDelete: Cascade)
+
+  @@index([stayId, status])
+  @@index([institutionId, createdAt])
+  @@map("stay_account_charges")
 }
 
 model CheckInRecord {
@@ -797,6 +918,7 @@ model CheckInRecord {
   checkedInAt   DateTime @default(now()) @map("checked_in_at")
   actorUserId   String?  @map("actor_user_id")
   notes         String?  @db.Text
+  occupantCount Int      @default(1) @map("occupant_count")
 
   stay        Stay        @relation(fields: [stayId], references: [id], onDelete: Cascade)
   reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Restrict)
@@ -805,15 +927,17 @@ model CheckInRecord {
 }
 
 model CheckOutRecord {
-  id                    String    @id @default(uuid())
-  stayId                String    @unique @map("stay_id")
-  reservationId         String    @map("reservation_id")
-  checkedOutAt          DateTime  @default(now()) @map("checked_out_at")
-  actorUserId           String?   @map("actor_user_id")
-  notes                 String?   @db.Text
-  financialHandoffStatus String   @default("PENDING") @map("financial_handoff_status") @db.VarChar(32)
-  financialExternalRef  String?   @map("financial_external_ref") @db.VarChar(128)
-  financialConfirmedAt  DateTime? @map("financial_confirmed_at")
+  id                     String                  @id @default(uuid())
+  stayId                 String                  @unique @map("stay_id")
+  reservationId          String                  @map("reservation_id")
+  checkedOutAt           DateTime                @default(now()) @map("checked_out_at")
+  actorUserId            String?                 @map("actor_user_id")
+  notes                  String?                 @db.Text
+  financialHandoffStatus FinancialHandoffStatus  @default(PENDING) @map("financial_handoff_status")
+  financialExternalRef   String?                 @map("financial_external_ref") @db.VarChar(128)
+  financialConfirmedAt   DateTime?               @map("financial_confirmed_at")
+  invoiceIntegrationId   String?                 @map("invoice_integration_id")
+  operationalComplete    Boolean                 @default(true) @map("operational_complete")
 
   stay        Stay        @relation(fields: [stayId], references: [id], onDelete: Cascade)
   reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Restrict)
@@ -824,44 +948,55 @@ model CheckOutRecord {
 // ─── Housekeeping & maintenance ──────────────────────────────────────────────
 
 model HousekeepingTask {
-  id          String                 @id @default(uuid())
-  hotelId     String                 @map("hotel_id")
-  roomId      String                 @map("room_id")
-  status      HousekeepingTaskStatus @default(PENDING)
-  priority    HousekeepingPriority   @default(NORMAL)
-  assignedTo  String?                @map("assigned_to") @db.VarChar(128)
-  notes       String?                @db.Text
-  startedAt   DateTime?              @map("started_at")
-  completedAt DateTime?              @map("completed_at")
-  createdAt   DateTime               @default(now()) @map("created_at")
-  updatedAt   DateTime               @updatedAt @map("updated_at")
+  id               String                 @id @default(uuid())
+  hotelId          String                 @map("hotel_id")
+  roomId           String                 @map("room_id")
+  stayId           String?                @map("stay_id")
+  kind             HousekeepingTaskKind   @default(CLEANING)
+  status           HousekeepingTaskStatus @default(PENDING)
+  priority         HousekeepingPriority   @default(NORMAL)
+  assignedTo       String?                @map("assigned_to") @db.VarChar(128)
+  notes            String?                @db.Text
+  deadlineAt       DateTime?              @map("deadline_at")
+  startedAt        DateTime?              @map("started_at")
+  completedAt      DateTime?              @map("completed_at")
+  inspectedAt      DateTime?              @map("inspected_at")
+  inspectionResult String?                @map("inspection_result") @db.VarChar(32)
+  inspectionNotes  String?                @map("inspection_notes") @db.Text
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
 
   hotel Hotel @relation(fields: [hotelId], references: [id], onDelete: Cascade)
   room  Room  @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
   @@index([hotelId, status, priority])
   @@index([roomId, status])
+  @@index([hotelId, kind, status])
   @@map("housekeeping_tasks")
 }
 
 model MaintenanceRequest {
-  id           String                    @id @default(uuid())
-  hotelId      String                    @map("hotel_id")
-  roomId       String?                   @map("room_id")
-  title        String                    @db.VarChar(255)
-  description  String?                   @db.Text
-  status       MaintenanceRequestStatus  @default(OPEN)
-  priority     MaintenancePriority       @default(NORMAL)
-  assignedTo   String?                   @map("assigned_to") @db.VarChar(128)
-  resolution   String?                   @db.Text
-  resolvedAt   DateTime?                 @map("resolved_at")
-  createdAt    DateTime                  @default(now()) @map("created_at")
-  updatedAt    DateTime                  @updatedAt @map("updated_at")
+  id           String                   @id @default(uuid())
+  hotelId      String                   @map("hotel_id")
+  roomId       String?                  @map("room_id")
+  title        String                   @db.VarChar(255)
+  description  String?                  @db.Text
+  category     String?                  @db.VarChar(64)
+  status       MaintenanceRequestStatus @default(OPEN)
+  priority     MaintenancePriority      @default(NORMAL)
+  assignedTo   String?                  @map("assigned_to") @db.VarChar(128)
+  blocksRoom   Boolean                  @default(false) @map("blocks_room")
+  resolution   String?                  @db.Text
+  startedAt    DateTime?                @map("started_at")
+  resolvedAt   DateTime?                @map("resolved_at")
+  createdAt    DateTime                 @default(now()) @map("created_at")
+  updatedAt    DateTime                 @updatedAt @map("updated_at")
 
   hotel Hotel @relation(fields: [hotelId], references: [id], onDelete: Cascade)
   room  Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
 
   @@index([hotelId, status, priority])
+  @@index([roomId, status])
   @@map("maintenance_requests")
 }
 

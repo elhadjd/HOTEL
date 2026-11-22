@@ -1,6 +1,6 @@
 # SIGESC Hotelaria — Database Design
 
-**Engine:** PostgreSQL 16+  
+**Engine:** MySQL 8.0 (Phase 6+; PostgreSQL legacy archived)  
 **ORM:** Prisma 6  
 **IDs:** UUID (`uuid()`)  
 **Tenant key:** `institutionId` on every business table  

@@ -28,6 +28,7 @@ export const APP_NAV = [
   { href: "/calendar", labelKey: "nav.calendar", icon: CalendarDays },
   { href: "/guests", labelKey: "nav.guests", icon: Users },
   { href: "/check-in", labelKey: "nav.checkIn", icon: LogIn },
+  { href: "/stays", labelKey: "nav.stays", icon: ConciergeBell },
   { href: "/check-out", labelKey: "nav.checkOut", icon: LogOut },
   { href: "/housekeeping", labelKey: "nav.housekeeping", icon: Sparkles },
   { href: "/maintenance", labelKey: "nav.maintenance", icon: Wrench },

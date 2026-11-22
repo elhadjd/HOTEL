@@ -1,20 +1,26 @@
+# SIGESC Hotelaria — local MySQL 8.0 (Phase 6+)
 services:
-  postgres:
-    image: postgres:16-alpine
+  mysql:
+    image: mysql:8.0.36
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "3306:3306"
     environment:
-      POSTGRES_USER: hotelaria
-      POSTGRES_PASSWORD: hotelaria
-      POSTGRES_DB: sigesc_hotelaria
+      MYSQL_ROOT_PASSWORD: hotelaria_root
+      MYSQL_USER: hotelaria
+      MYSQL_PASSWORD: hotelaria
+      MYSQL_DATABASE: sigesc_hotelaria
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=caching_sha2_password
     volumes:
-      - hotelaria_pg:/var/lib/postgresql/data
+      - hotelaria_mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U hotelaria -d sigesc_hotelaria"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uhotelaria", "-photelaria"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
 
 volumes:
-  hotelaria_pg:
+  hotelaria_mysql:

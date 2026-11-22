@@ -87,4 +87,25 @@ export async function assertRoomAssignable(
     const codes = conflicts.map((c) => c.reservation.code).join(", ");
     throw new Error(`Room overlap conflict with reservation(s): ${codes}`);
   }
+
+  // Active stays occupy the room until actual/expected departure
+  const stayConflicts = await db.stay.findMany({
+    where: {
+      roomId: params.roomId,
+      status: { in: ["ACTIVE", "CHECKOUT_PENDING"] },
+      ...(params.excludeReservationId
+        ? { reservationId: { not: params.excludeReservationId } }
+        : {}),
+      actualArrival: { lt: params.departure },
+      OR: [
+        { actualDeparture: null, expectedDeparture: { gt: params.arrival } },
+        { actualDeparture: { gt: params.arrival } },
+      ],
+    },
+    select: { id: true },
+    take: 1,
+  });
+  if (stayConflicts.length > 0) {
+    throw new Error("Room is occupied by an active stay");
+  }
 }
