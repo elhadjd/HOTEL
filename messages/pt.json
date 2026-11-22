@@ -23,7 +23,12 @@
     "centralCustomers": "Clientes SIGESC",
     "centralProducts": "Catálogo SIGESC",
     "centralInvoices": "Cotações SIGESC",
-    "stays": "Estadias"
+    "stays": "Estadias",
+    "groupOverview": "Visão geral",
+    "groupFrontDesk": "Recepção",
+    "groupOperations": "Operações",
+    "groupIntegrations": "Integrações",
+    "groupSystem": "Sistema"
   },
   "common": {
     "search": "Pesquisar reservas, hóspedes, quartos…",
