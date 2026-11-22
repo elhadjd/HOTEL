@@ -176,14 +176,21 @@ export async function resetPasswordWithToken(
     });
   });
 
-  await enqueueAndSendEmail(prisma, {
-    institutionId,
-    userId: row.userId,
-    template: "PASSWORD_CHANGED",
-    toEmail: userEmail,
-    subject: "SIGESC Hotelaria — Palavra-passe actualizada",
-    payloadJson: { toName: userName },
-  });
+  try {
+    await enqueueAndSendEmail(prisma, {
+      institutionId,
+      userId: row.userId,
+      template: "PASSWORD_CHANGED",
+      toEmail: userEmail,
+      subject: "SIGESC Hotelaria — Palavra-passe actualizada",
+      payloadJson: { toName: userName },
+    });
+  } catch (err) {
+    logger.error("auth.password_reset.email_failed", {
+      userId: row.userId,
+      message: err instanceof Error ? err.message : "send failed",
+    });
+  }
 
   return { ok: true };
 }
@@ -250,14 +257,21 @@ export async function changePasswordMandatory(
     });
   });
 
-  await enqueueAndSendEmail(prisma, {
-    institutionId,
-    userId,
-    template: "PASSWORD_CHANGED",
-    toEmail: userEmail,
-    subject: "SIGESC Hotelaria — Palavra-passe actualizada",
-    payloadJson: { toName: userName },
-  });
+  try {
+    await enqueueAndSendEmail(prisma, {
+      institutionId,
+      userId,
+      template: "PASSWORD_CHANGED",
+      toEmail: userEmail,
+      subject: "SIGESC Hotelaria — Palavra-passe actualizada",
+      payloadJson: { toName: userName },
+    });
+  } catch (err) {
+    logger.error("auth.password_change.email_failed", {
+      userId,
+      message: err instanceof Error ? err.message : "send failed",
+    });
+  }
 
   return { ok: true };
 }

@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
@@ -17,7 +16,6 @@ export function LoginForm({
     error: string;
   };
 }) {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -32,22 +30,24 @@ export function LoginForm({
         password,
         redirect: false,
       });
-      if (result?.error) {
+      if (result?.error || !result?.ok) {
         setError(labels.error);
         return;
       }
-      // Session callback will expose mustChangePassword; fetch session briefly
-      const sessionRes = await fetch("/api/auth/session");
+
+      const sessionRes = await fetch("/api/auth/session", { cache: "no-store" });
       const session = (await sessionRes.json()) as {
-        user?: { mustChangePassword?: boolean };
+        user?: { id?: string; mustChangePassword?: boolean };
       };
-      if (session.user?.mustChangePassword) {
-        router.push("/set-password");
-        router.refresh();
+
+      if (!session.user?.id) {
+        setError(labels.error);
         return;
       }
-      router.push("/dashboard");
-      router.refresh();
+
+      // Hard navigation so the new session cookie is always picked up by middleware
+      const next = session.user.mustChangePassword ? "/set-password" : "/dashboard";
+      window.location.assign(next);
     });
   }
 

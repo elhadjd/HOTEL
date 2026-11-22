@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { signIn, useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 
 export function SetPasswordForm({
@@ -14,7 +14,7 @@ export function SetPasswordForm({
     help: string;
   };
 }) {
-  const router = useRouter();
+  const { data: session, update } = useSession();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -38,10 +38,28 @@ export function SetPasswordForm({
         setError(data.error ?? "Failed");
         return;
       }
-      setPassword("");
-      setConfirmPassword("");
-      router.push("/dashboard");
-      router.refresh();
+
+      // Refresh JWT so sessionVersion / mustChangePassword match the DB
+      try {
+        await update();
+      } catch {
+        // Fall through to re-authenticate with the new password
+      }
+
+      const email = session?.user?.email;
+      if (email) {
+        const login = await signIn("credentials", {
+          email,
+          password,
+          redirect: false,
+        });
+        if (login?.error || !login?.ok) {
+          window.location.assign("/login");
+          return;
+        }
+      }
+
+      window.location.assign("/dashboard");
     });
   }
 
