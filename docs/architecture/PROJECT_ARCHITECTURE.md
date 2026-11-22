@@ -179,6 +179,7 @@ Auth session:
 
 ## 8. Related documents
 
+- [PHASE0_AUDIT_REPORT.md](./PHASE0_AUDIT_REPORT.md) — relatório completo Phase 0 + Phase 1  
 - [DATABASE_DESIGN.md](./DATABASE_DESIGN.md)  
 - [SIGESC_INTEGRATION.md](./SIGESC_INTEGRATION.md)  
 - [SECURITY_MODEL.md](./SECURITY_MODEL.md)  
