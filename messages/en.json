@@ -1,0 +1,59 @@
+{
+  "brand": {
+    "name": "SIGESC Hotelaria",
+    "tagline": "Operational intelligence for premium hospitality"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "hotels": "Hotels",
+    "roomCategories": "Categories",
+    "rooms": "Rooms",
+    "reservations": "Reservations",
+    "calendar": "Calendar",
+    "guests": "Guests",
+    "checkIn": "Check-in",
+    "checkOut": "Check-out",
+    "housekeeping": "Housekeeping",
+    "maintenance": "Maintenance",
+    "rates": "Rates",
+    "reports": "Reports",
+    "staff": "Staff",
+    "integrations": "SIGESC Integration",
+    "settings": "Settings"
+  },
+  "common": {
+    "search": "Search reservations, guests, rooms…",
+    "loading": "Loading…",
+    "empty": "No records",
+    "comingSoon": "Module under construction — architecture ready",
+    "save": "Save",
+    "cancel": "Cancel",
+    "language": "EN"
+  },
+  "auth": {
+    "login": "Sign in",
+    "email": "Email",
+    "password": "Password",
+    "onboarding": "Connect SIGESC account"
+  },
+  "dashboard": {
+    "title": "Today’s operations",
+    "subtitle": "Operational indicators from hotel records — no SIGESC financial metrics.",
+    "totalRooms": "Rooms",
+    "available": "Available",
+    "occupied": "Occupied",
+    "cleaning": "Cleaning",
+    "maintenance": "Maintenance",
+    "arrivals": "Arrivals",
+    "departures": "Departures",
+    "activeReservations": "Active reservations",
+    "upcoming": "Upcoming",
+    "occupancy": "Occupancy",
+    "alerts": "Operational alerts",
+    "activity": "Recent activity"
+  },
+  "landing": {
+    "cta": "Enter platform",
+    "secondary": "Aggregate onboarding"
+  }
+}

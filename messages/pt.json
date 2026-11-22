@@ -1,0 +1,59 @@
+{
+  "brand": {
+    "name": "SIGESC Hotelaria",
+    "tagline": "Inteligência operacional para hospitalidade premium"
+  },
+  "nav": {
+    "dashboard": "Painel",
+    "hotels": "Hotéis",
+    "roomCategories": "Categorias",
+    "rooms": "Quartos",
+    "reservations": "Reservas",
+    "calendar": "Calendário",
+    "guests": "Hóspedes",
+    "checkIn": "Check-in",
+    "checkOut": "Check-out",
+    "housekeeping": "Governança",
+    "maintenance": "Manutenção",
+    "rates": "Tarifas",
+    "reports": "Relatórios",
+    "staff": "Equipa",
+    "integrations": "Integração SIGESC",
+    "settings": "Definições"
+  },
+  "common": {
+    "search": "Pesquisar reservas, hóspedes, quartos…",
+    "loading": "A carregar…",
+    "empty": "Sem registos",
+    "comingSoon": "Módulo em construção — arquitectura pronta",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "language": "PT"
+  },
+  "auth": {
+    "login": "Entrar",
+    "email": "Email",
+    "password": "Palavra-passe",
+    "onboarding": "Ligar conta SIGESC"
+  },
+  "dashboard": {
+    "title": "Operações de hoje",
+    "subtitle": "Indicadores operacionais derivados dos registos do hotel — sem métricas financeiras SIGESC.",
+    "totalRooms": "Quartos",
+    "available": "Disponíveis",
+    "occupied": "Ocupados",
+    "cleaning": "Em limpeza",
+    "maintenance": "Manutenção",
+    "arrivals": "Chegadas",
+    "departures": "Partidas",
+    "activeReservations": "Reservas activas",
+    "upcoming": "Próximas reservas",
+    "occupancy": "Ocupação",
+    "alerts": "Alertas operacionais",
+    "activity": "Actividade recente"
+  },
+  "landing": {
+    "cta": "Aceder à plataforma",
+    "secondary": "Onboarding Aggregate"
+  }
+}
