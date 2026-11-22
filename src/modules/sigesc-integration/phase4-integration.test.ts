@@ -8,7 +8,6 @@ import {
   createCentralCustomerFromGuest,
   linkGuestToCentralCustomer,
   searchCentralCustomers,
-  unlinkGuestFromCentralCustomer,
 } from "./customers/customers-service";
 import {
   createCentralProduct,
@@ -84,7 +83,7 @@ describe.runIf(hasDb)("Phase 4 commerce integration", () => {
         customerMapping: {
           create: {
             institutionId,
-            syncStatus: "UNLINKED",
+            syncStatus: "NEEDS_RESOLUTION",
           },
         },
       },
@@ -167,21 +166,24 @@ describe.runIf(hasDb)("Phase 4 commerce integration", () => {
         institutionId,
         firstName: "Outro",
         lastName: "Hospede",
-        customerMapping: { create: { institutionId, syncStatus: "UNLINKED" } },
+        customerMapping: { create: { institutionId, syncStatus: "NEEDS_RESOLUTION" } },
       },
     });
     await expect(linkGuestToCentralCustomer(prisma, ctx, guest2.id, 501)).rejects.toThrow(
       /already linked/,
     );
-
-    await unlinkGuestFromCentralCustomer(prisma, ctx, guestId);
-    const after = await prisma.guestCustomerMapping.findUniqueOrThrow({ where: { guestId } });
-    expect(after.syncStatus).toBe("UNLINKED");
-    expect(after.externalCustomerId).toBeNull();
   });
 
   it("creates central customer from guest after search confirmation path", async () => {
-    // Unique email so no candidates
+    // Unlink-equivalent: reset to needs resolution for this legacy path test
+    await prisma.guestCustomerMapping.update({
+      where: { guestId },
+      data: {
+        syncStatus: "NEEDS_RESOLUTION",
+        externalCustomerId: null,
+        companyId: null,
+      },
+    });
     await prisma.guest.update({
       where: { id: guestId },
       data: { email: `unique-${Date.now()}@exemplo.com`, phone: `+2449${Date.now().toString().slice(-8)}` },
@@ -196,20 +198,18 @@ describe.runIf(hasDb)("Phase 4 commerce integration", () => {
     }
   });
 
-  it("maps local service to central product without overwriting prices", async () => {
+  it("maps local service using verified central price only", async () => {
     const products = await searchCentralProducts(prisma, ctx, { kind: "service" });
     const product = products.data![0]!;
     const mapping = await upsertCatalogMapping(prisma, ctx, {
       localCode: "accommodation",
       localLabel: "Alojamento",
-      localOperationalPrice: 50000,
       kind: "SERVICE",
       centralProductId: String(product.id),
     });
-    expect(Number(mapping.localOperationalPrice)).toBe(50000);
     expect(mapping.centralProductId).toBe(String(product.id));
     expect(Number(mapping.centralSalePrice)).toBe(Number(product.sale_price));
-    expect(Number(mapping.localOperationalPrice)).not.toBe(Number(mapping.centralSalePrice));
+    expect(mapping.centralPriceVerifiedAt).toBeTruthy();
   });
 
   it("creates Cotação with idempotency and rejects Publicado at draft layer", async () => {

@@ -6,6 +6,8 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts"],
     css: false,
+    // Integration tests share one Postgres DB; parallel files race on fixtures/cleanup.
+    fileParallelism: false,
   },
   css: {
     postcss: {

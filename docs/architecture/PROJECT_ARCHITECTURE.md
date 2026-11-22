@@ -2,7 +2,7 @@
 
 **Product:** SIGESC Hotelaria  
 **Concept:** Modern Hospitality Intelligence  
-**Status:** Phase 0 audit complete · Phase 1 foundation in progress  
+**Status:** Phases 0–5 complete (mock Aggregate) · ops Phase 6 pending  
 **Date:** 2026-11-22
 
 ---
@@ -139,16 +139,15 @@ Auth session:
 
 ## 6. What can be implemented immediately vs blocked
 
-### Implement now (mock Aggregate)
+### Implemented (mock Aggregate)
 
 - Foundation stack, design system, app shell  
 - Prisma schema + migrations + seed  
 - IAM / RBAC / tenant middleware  
 - Aggregate port + mock adapter + crypto + connect flow  
 - Hotels, categories, rooms, guests, reservations, calendar (ops)  
-- Check-in / check-out (ops only; financial handoff stubbed as pending)  
-- Housekeeping, maintenance, rates (operational)  
-- Dashboard operational metrics from DB  
+- Phase 4 Aggregate commerce (customers, products, Cotação/Proforma)  
+- Phase 5 central pricing + Customer↔Guest lifecycle (individual/bulk convert)  
 
 ### Requires external / live Aggregate staging
 

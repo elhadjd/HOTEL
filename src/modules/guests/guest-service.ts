@@ -1,15 +1,40 @@
 import type { PrismaClient } from "@prisma/client";
 import { assertSameInstitution, type TenantContext } from "@/modules/tenancy/tenant";
+import { getCentralCustomer } from "@/modules/sigesc-integration/customers/customers-service";
+import {
+  assertAggregateScope,
+  resolveInstitutionAggregateConnection,
+} from "@/modules/sigesc-integration/connection-context";
+
+export function isGuestCustomerLinked(mapping: {
+  syncStatus: string;
+  externalCustomerId: string | null;
+} | null | undefined): boolean {
+  return Boolean(
+    mapping &&
+      mapping.syncStatus === "LINKED" &&
+      mapping.externalCustomerId &&
+      mapping.externalCustomerId.length > 0,
+  );
+}
 
 export async function listGuests(
   prisma: PrismaClient,
   ctx: TenantContext,
-  query?: { q?: string; take?: number },
+  query?: { q?: string; take?: number; linkedOnly?: boolean },
 ) {
   const q = query?.q?.trim();
   return prisma.guest.findMany({
     where: {
       institutionId: ctx.institutionId,
+      ...(query?.linkedOnly
+        ? {
+            customerMapping: {
+              syncStatus: "LINKED",
+              externalCustomerId: { not: null },
+            },
+          }
+        : {}),
       ...(q
         ? {
             OR: [
@@ -54,6 +79,25 @@ export async function getGuest(prisma: PrismaClient, ctx: TenantContext, guestId
   return guest;
 }
 
+export async function assertGuestLinkedForOperations(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+  guestId: string,
+) {
+  const guest = await getGuest(prisma, ctx, guestId);
+  if (!isGuestCustomerLinked(guest.customerMapping)) {
+    throw new Error(
+      "Guest has no valid SIGESC Central customer association. Resolve the mapping before operational use.",
+    );
+  }
+  return guest;
+}
+
+/**
+ * Phase 5: Guest creation requires a valid central Customer association.
+ * Workflow A — existing centralCustomerId
+ * Workflow B — createCustomerFirst payload (handled by callers that create customer then call this)
+ */
 export async function createGuest(
   prisma: PrismaClient,
   ctx: TenantContext,
@@ -64,27 +108,53 @@ export async function createGuest(
     phone?: string;
     country?: string;
     notes?: string;
+    /** Required — central SIGESC customer id for the connected company */
+    centralCustomerId: number | string;
   },
 ) {
+  if (input.centralCustomerId === undefined || input.centralCustomerId === null || input.centralCustomerId === "") {
+    throw new Error("centralCustomerId is required — every Guest must be linked to a SIGESC Central customer");
+  }
+
+  const resolved = await resolveInstitutionAggregateConnection(prisma, ctx.institutionId);
+  assertAggregateScope(resolved, "customers");
+  const customer = await getCentralCustomer(prisma, ctx, input.centralCustomerId);
+  const externalId = String(customer.id);
+
+  const existingLink = await prisma.guestCustomerMapping.findFirst({
+    where: {
+      institutionId: ctx.institutionId,
+      externalCustomerId: externalId,
+      syncStatus: "LINKED",
+    },
+  });
+  if (existingLink) {
+    throw new Error("This central customer is already associated with a Guest in this institution");
+  }
+
   return prisma.$transaction(async (tx) => {
     const guest = await tx.guest.create({
       data: {
         institutionId: ctx.institutionId,
         firstName: input.firstName.trim(),
         lastName: input.lastName.trim(),
-        email: input.email?.trim().toLowerCase() || null,
-        phone: input.phone?.trim() || null,
+        email: input.email?.trim().toLowerCase() || customer.email?.toLowerCase() || null,
+        phone: input.phone?.trim() || customer.phone || null,
         country: input.country?.trim() || null,
         notes: input.notes?.trim() || null,
       },
     });
 
-    // Local guest remains usable offline — mapping starts UNLINKED
     await tx.guestCustomerMapping.create({
       data: {
         guestId: guest.id,
         institutionId: ctx.institutionId,
-        syncStatus: "UNLINKED",
+        connectionId: resolved.connection.id,
+        externalCustomerId: externalId,
+        companyId: resolved.companyId,
+        syncStatus: "LINKED",
+        lastSyncedAt: new Date(),
+        lastError: null,
       },
     });
 
@@ -95,6 +165,7 @@ export async function createGuest(
         action: "CREATE",
         entityType: "Guest",
         entityId: guest.id,
+        metadata: { centralCustomerId: externalId, source: "create_with_customer" },
       },
     });
 
@@ -130,5 +201,26 @@ export async function updateGuest(
       notes: input.notes === undefined ? undefined : input.notes?.trim() || null,
     },
     include: { customerMapping: true },
+  });
+}
+
+export async function listGuestsNeedingCustomerResolution(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+) {
+  return prisma.guest.findMany({
+    where: {
+      institutionId: ctx.institutionId,
+      customerMapping: {
+        OR: [
+          { syncStatus: "NEEDS_RESOLUTION" },
+          { syncStatus: "UNLINKED" },
+          { syncStatus: "LINKED", externalCustomerId: null },
+        ],
+      },
+    },
+    include: { customerMapping: true },
+    orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+    take: 200,
   });
 }

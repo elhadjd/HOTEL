@@ -129,7 +129,10 @@ enum MaintenancePriority {
 }
 
 enum CustomerSyncStatus {
+  /** @deprecated Phase 5 — legacy only; new guests must be LINKED */
   UNLINKED
+  /** Historical guests awaiting explicit customer association (Phase 5) */
+  NEEDS_RESOLUTION
   PENDING
   LINKED
   CONFLICT
@@ -586,25 +589,32 @@ model GuestCustomerMapping {
   @@map("guest_customer_mappings")
 }
 
-/** Local operational service/catalog entry mapped to a central SIGESC product. */
+/**
+ * Local operational service/catalog entry mapped to a central SIGESC product.
+ * Official sale price and tax come ONLY from SIGESC Central (refreshed on use).
+ * legacyHistoricalPrice is non-authoritative audit residue from Phase 4 — never use for invoicing.
+ */
 model ProductCatalogMapping {
-  id                     String      @id @default(uuid())
-  institutionId          String      @map("institution_id")
-  connectionId           String?     @map("connection_id")
-  localCode              String      @map("local_code") @db.VarChar(64)
-  localLabel             String      @map("local_label") @db.VarChar(255)
-  localOperationalPrice  Decimal?    @map("local_operational_price") @db.Decimal(14, 2)
-  kind                   CatalogKind @default(SERVICE)
-  centralProductId       String      @map("central_product_id") @db.VarChar(64)
-  centralCompanyId       String      @map("central_company_id") @db.VarChar(64)
-  centralName            String?     @map("central_name") @db.VarChar(255)
-  centralSalePrice       Decimal?    @map("central_sale_price") @db.Decimal(14, 2)
-  centralTaxPercent      Decimal?    @map("central_tax_percent") @db.Decimal(8, 4)
-  active                 Boolean     @default(true)
-  lastSyncedAt           DateTime?   @map("last_synced_at")
-  lastError              String?     @map("last_error") @db.Text
-  createdAt              DateTime    @default(now()) @map("created_at")
-  updatedAt              DateTime    @updatedAt @map("updated_at")
+  id                      String      @id @default(uuid())
+  institutionId           String      @map("institution_id")
+  connectionId            String?     @map("connection_id")
+  localCode               String      @map("local_code") @db.VarChar(64)
+  localLabel              String      @map("local_label") @db.VarChar(255)
+  /** Non-authoritative Phase 4 residue — never use as official price */
+  legacyHistoricalPrice   Decimal?    @map("legacy_historical_price") @db.Decimal(14, 2)
+  kind                    CatalogKind @default(SERVICE)
+  centralProductId        String      @map("central_product_id") @db.VarChar(64)
+  centralCompanyId        String      @map("central_company_id") @db.VarChar(64)
+  centralName             String?     @map("central_name") @db.VarChar(255)
+  /** Last verified cache of central sale_price — not editable; refresh from Aggregate */
+  centralSalePrice        Decimal?    @map("central_sale_price") @db.Decimal(14, 2)
+  centralTaxPercent       Decimal?    @map("central_tax_percent") @db.Decimal(8, 4)
+  centralPriceVerifiedAt  DateTime?   @map("central_price_verified_at")
+  active                  Boolean     @default(true)
+  lastSyncedAt            DateTime?   @map("last_synced_at")
+  lastError               String?     @map("last_error") @db.Text
+  createdAt               DateTime    @default(now()) @map("created_at")
+  updatedAt               DateTime    @updatedAt @map("updated_at")
 
   institution Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
 

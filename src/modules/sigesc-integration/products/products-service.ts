@@ -6,7 +6,26 @@ import {
   assertCompanyMatchesConnection,
   resolveInstitutionAggregateConnection,
 } from "../connection-context";
-import type { AggregateProductsQuery, AggregateProductWriteInput } from "../types";
+import type { AggregateProduct, AggregateProductsQuery, AggregateProductWriteInput } from "../types";
+
+/** Cached central price older than this is not presented as verified-current. */
+export const CENTRAL_PRICE_FRESHNESS_MS = 5 * 60 * 1000;
+
+export type VerifiedCentralPrice = {
+  productId: number;
+  companyId: number;
+  name: string;
+  salePrice: number;
+  taxPercent: number | null;
+  currencyHint: "AOA";
+  verifiedAt: Date;
+  product: AggregateProduct;
+};
+
+export function isCentralPriceFresh(verifiedAt: Date | null | undefined, now = new Date()): boolean {
+  if (!verifiedAt) return false;
+  return now.getTime() - verifiedAt.getTime() <= CENTRAL_PRICE_FRESHNESS_MS;
+}
 
 export async function searchCentralProducts(
   prisma: PrismaClient,
@@ -35,6 +54,35 @@ export async function getCentralProduct(
   });
   assertCompanyMatchesConnection(resolved, product.company_id);
   return product;
+}
+
+/**
+ * Fetch official central sale price. Blocks when Aggregate cannot verify.
+ * Never falls back to legacyHistoricalPrice.
+ */
+export async function verifyCentralProductPrice(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+  productId: number | string,
+): Promise<VerifiedCentralPrice> {
+  const product = await getCentralProduct(prisma, ctx, productId);
+  const salePrice = product.sale_price ?? product.price;
+  if (salePrice === null || salePrice === undefined || Number.isNaN(Number(salePrice))) {
+    throw new Error(
+      `Central product #${productId} has no verifiable sale_price from SIGESC Aggregate`,
+    );
+  }
+  const verifiedAt = new Date();
+  return {
+    productId: product.id,
+    companyId: product.company_id,
+    name: product.name,
+    salePrice: Number(salePrice),
+    taxPercent: product.tax_percent != null ? Number(product.tax_percent) : null,
+    currencyHint: "AOA",
+    verifiedAt,
+    product,
+  };
 }
 
 export async function createCentralProduct(
@@ -104,7 +152,6 @@ export async function upsertCatalogMapping(
   input: {
     localCode: string;
     localLabel: string;
-    localOperationalPrice?: number | null;
     kind?: CatalogKind;
     centralProductId: string;
     active?: boolean;
@@ -112,7 +159,7 @@ export async function upsertCatalogMapping(
 ) {
   const resolved = await resolveInstitutionAggregateConnection(prisma, ctx.institutionId);
   assertAggregateScope(resolved, "products");
-  const product = await getCentralProduct(prisma, ctx, input.centralProductId);
+  const verified = await verifyCentralProductPrice(prisma, ctx, input.centralProductId);
 
   const mapping = await prisma.productCatalogMapping.upsert({
     where: {
@@ -126,30 +173,31 @@ export async function upsertCatalogMapping(
       connectionId: resolved.connection.id,
       localCode: input.localCode.trim(),
       localLabel: input.localLabel.trim(),
-      localOperationalPrice: input.localOperationalPrice ?? null,
       kind: input.kind ?? "SERVICE",
-      centralProductId: String(product.id),
+      centralProductId: String(verified.productId),
       centralCompanyId: resolved.companyId,
-      centralName: product.name,
-      centralSalePrice: product.sale_price ?? null,
-      centralTaxPercent: product.tax_percent ?? null,
+      centralName: verified.name,
+      centralSalePrice: verified.salePrice,
+      centralTaxPercent: verified.taxPercent,
+      centralPriceVerifiedAt: verified.verifiedAt,
       active: input.active ?? true,
-      lastSyncedAt: new Date(),
+      lastSyncedAt: verified.verifiedAt,
       lastError: null,
     },
     update: {
       connectionId: resolved.connection.id,
       localLabel: input.localLabel.trim(),
-      localOperationalPrice: input.localOperationalPrice ?? null,
       kind: input.kind ?? undefined,
-      centralProductId: String(product.id),
+      centralProductId: String(verified.productId),
       centralCompanyId: resolved.companyId,
-      centralName: product.name,
-      centralSalePrice: product.sale_price ?? null,
-      centralTaxPercent: product.tax_percent ?? null,
+      centralName: verified.name,
+      centralSalePrice: verified.salePrice,
+      centralTaxPercent: verified.taxPercent,
+      centralPriceVerifiedAt: verified.verifiedAt,
       active: input.active ?? true,
-      lastSyncedAt: new Date(),
+      lastSyncedAt: verified.verifiedAt,
       lastError: null,
+      // Never write legacyHistoricalPrice from API — leave historical residue untouched
     },
   });
 
@@ -163,11 +211,36 @@ export async function upsertCatalogMapping(
       metadata: {
         localCode: mapping.localCode,
         centralProductId: mapping.centralProductId,
+        centralSalePrice: verified.salePrice,
       },
     },
   });
 
   return mapping;
+}
+
+/** Refresh cached central price from Aggregate for a mapping. */
+export async function refreshCatalogMappingPrice(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+  mappingId: string,
+) {
+  const mapping = await prisma.productCatalogMapping.findUnique({ where: { id: mappingId } });
+  if (!mapping || mapping.institutionId !== ctx.institutionId) {
+    throw new Error("Catalog mapping not found");
+  }
+  const verified = await verifyCentralProductPrice(prisma, ctx, mapping.centralProductId);
+  return prisma.productCatalogMapping.update({
+    where: { id: mappingId },
+    data: {
+      centralName: verified.name,
+      centralSalePrice: verified.salePrice,
+      centralTaxPercent: verified.taxPercent,
+      centralPriceVerifiedAt: verified.verifiedAt,
+      lastSyncedAt: verified.verifiedAt,
+      lastError: null,
+    },
+  });
 }
 
 export async function deleteCatalogMapping(

@@ -59,6 +59,16 @@ Never accept `company_id` / `institutionId` from the client as authoritative.
 
 **Required tests:** User of Hotel A cannot read/write Hotel B via ID manipulation (API + UI routes).
 
+### Phase 5 — pricing & conversion controls
+
+- Catalog upsert rejects local price fields (Zod `.strict()`).  
+- Invoice lines ignore browser `unitPrice`; re-verify Aggregate `sale_price`.  
+- Customer→Guest convert derives institution/connection from session only.  
+- Bulk convert max 50; per-record isolation; duplicate id protection.  
+- Guest create requires `guests.write` **and** `integrations.customers`.  
+- Unlink endpoint rejected; reassociate only.  
+- Concurrent conversion guarded by unique `(institutionId, externalCustomerId)`.
+
 ---
 
 ## 5. Aggregate key handling
@@ -97,8 +107,10 @@ Never accept `company_id` / `institutionId` from the client as authoritative.
 
 ---
 
-## 8. Security risks carried into Phase 1
+## 8. Security risks / residual notes
 
 1. No live Aggregate staging in this agent environment — mock only.  
 2. Clinic’s local invoicing must not be reintroduced.  
 3. Multi-instance booking locks may need Postgres advisory locks beyond in-process mutex (document for scale-out).  
+4. Historical `NEEDS_RESOLUTION` guests are not DB-blocked from all reads; ops mutations (reservation/invoice) enforce LINKED at service layer.  
+5. Bulk convert relies on application batch limit + unique constraints (no separate rate-limit middleware yet on convert route).  

@@ -4,6 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { prisma } from "@/server/db";
 import { requirePageTenant } from "@/server/page-auth";
 import {
+  CENTRAL_PRICE_FRESHNESS_MS,
+  isCentralPriceFresh,
   listCatalogMappings,
   searchCentralProducts,
 } from "@/modules/sigesc-integration/products/products-service";
@@ -37,9 +39,10 @@ export default async function CentralProductsPage({
     <AppShell title={t("nav.centralProducts")}>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <p className="font-ui max-w-2xl text-sm text-stone-500">
-          Catálogo oficial SIGESC. Stock e movimentos de inventário não passam por estes endpoints.
+          Preço oficial SIGESC Central (frescor {CENTRAL_PRICE_FRESHNESS_MS / 60000} min). Stock não
+          passa por estes endpoints.
         </p>
-        <Badge tone="accent">Phase 4</Badge>
+        <Badge tone="accent">Phase 5</Badge>
       </div>
       {loadError ? (
         <div className="surface p-5">
@@ -52,12 +55,15 @@ export default async function CentralProductsPage({
             id: m.id,
             localCode: m.localCode,
             localLabel: m.localLabel,
-            localOperationalPrice:
-              m.localOperationalPrice != null ? Number(m.localOperationalPrice) : null,
             centralProductId: m.centralProductId,
             centralName: m.centralName,
             centralSalePrice: m.centralSalePrice != null ? Number(m.centralSalePrice) : null,
+            centralTaxPercent: m.centralTaxPercent != null ? Number(m.centralTaxPercent) : null,
+            centralPriceVerifiedAt: m.centralPriceVerifiedAt?.toISOString() ?? null,
+            legacyHistoricalPrice:
+              m.legacyHistoricalPrice != null ? Number(m.legacyHistoricalPrice) : null,
             active: m.active,
+            priceFresh: isCentralPriceFresh(m.centralPriceVerifiedAt),
           }))}
         />
       )}

@@ -25,10 +25,10 @@ export default async function GuestsPage({
     <AppShell title={t("nav.guests")}>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <p className="font-ui max-w-2xl text-sm text-stone-500">
-          Perfis operacionais locais — distintos do cliente financeiro SIGESC (mapeamento
-          UNLINKED até sincronização autorizada).
+          Perfis operacionais — cada hóspede novo exige Cliente SIGESC. Históricos em
+          NEEDS_RESOLUTION devem ser resolvidos antes de reservas/faturas.
         </p>
-        <Badge tone="accent">Phase 3</Badge>
+        <Badge tone="accent">Phase 5</Badge>
       </div>
 
       <form className="mb-4" method="get">
