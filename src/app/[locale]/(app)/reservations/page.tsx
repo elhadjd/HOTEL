@@ -40,7 +40,7 @@ export default async function ReservationsPage({
     where: { institutionId: ctx.institutionId },
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     take: 100,
-    select: { id: true, firstName: true, lastName: true },
+    select: { id: true, firstName: true, lastName: true, email: true, phone: true },
   });
 
   return (
@@ -116,6 +116,8 @@ export default async function ReservationsPage({
             guests={guests.map((g) => ({
               id: g.id,
               label: `${g.firstName} ${g.lastName}`,
+              email: g.email,
+              phone: g.phone,
             }))}
           />
         </div>

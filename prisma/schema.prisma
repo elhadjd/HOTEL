@@ -672,7 +672,9 @@ model InvoiceIntegration {
   institutionId        String                   @map("institution_id")
   connectionId         String                   @map("connection_id")
   reservationId        String?                  @map("reservation_id")
+  stayId               String?                  @map("stay_id")
   guestId              String?                  @map("guest_id")
+  hotelId              String?                  @map("hotel_id")
   externalId           String                   @map("external_id") @db.VarChar(128)
   partner              String                   @default("sigesc_hotelaria") @db.VarChar(64)
   requestedState       String                   @map("requested_state") @db.VarChar(32)
@@ -689,10 +691,11 @@ model InvoiceIntegration {
   centralRestPayable   Decimal?                 @map("central_rest_payable") @db.Decimal(14, 2)
   currency             String                   @default("AOA") @db.Char(3)
   notes                String?                  @db.Text
-  /** Non-secret line snapshot for audit (product ids, qty, prices) */
+  /** Non-secret line snapshot for audit (product ids, qty, prices, discounts) */
   linesJson            Json                     @map("lines_json")
   idempotentHit        Boolean                  @default(false) @map("idempotent_hit")
   lastError            String?                  @map("last_error") @db.Text
+  createdByUserId      String?                  @map("created_by_user_id")
   submittedAt          DateTime?                @map("submitted_at")
   createdAt            DateTime                 @default(now()) @map("created_at")
   updatedAt            DateTime                 @updatedAt @map("updated_at")
@@ -704,6 +707,10 @@ model InvoiceIntegration {
   @@index([institutionId, status])
   @@index([saleKey])
   @@index([reservationId])
+  @@index([stayId])
+  @@index([guestId])
+  @@index([hotelId])
+  @@index([institutionId, createdAt])
   @@map("invoice_integrations")
 }
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import type { InvoiceIntegration, PrismaClient } from "@prisma/client";
+import type { InvoiceIntegration, Prisma, PrismaClient } from "@prisma/client";
 import type { TenantContext } from "@/modules/tenancy/tenant";
 import { getAggregateClient } from "../client";
 import {
@@ -21,15 +21,45 @@ const SUBMITTABLE: Array<InvoiceIntegration["status"]> = [
   "RECONCILIATION_REQUIRED",
 ];
 
+/** Aggregate states that still allow POST /sales/{sale_key}/items */
+export const EDITABLE_CENTRAL_STATES = new Set(["Cotação", "Proforma"]);
+
+/** Central states that must never accept financial mutations */
+export const READONLY_CENTRAL_STATES = new Set([
+  "Publicado",
+  "Pago",
+  "Cancelado",
+  "Recusado",
+  "Anulado",
+]);
+
 export type InvoiceLineDraft = {
   /** Local catalog mapping code OR direct central product id */
   mappingLocalCode?: string;
   centralProductId?: string;
   quantity: number;
-  /** Ignored — Phase 5 uses verified central sale_price only */
+  /**
+   * Browser-supplied unit price is never trusted.
+   * Official price always comes from verifyCentralProductPrice().
+   */
   unitPrice?: number;
+  /** Line discount in currency units — Aggregate contract supports it */
   discount?: number;
   description?: string;
+};
+
+export type InvoiceListFilters = {
+  q?: string;
+  state?: string;
+  status?: InvoiceIntegration["status"];
+  guestId?: string;
+  stayId?: string;
+  reservationId?: string;
+  hotelId?: string;
+  from?: Date;
+  to?: Date;
+  take?: number;
+  skip?: number;
 };
 
 function normalizeRequestedState(state: string): "Cotação" | "Proforma" {
@@ -37,6 +67,33 @@ function normalizeRequestedState(state: string): "Cotação" | "Proforma" {
   if (s === "cotação" || s === "cotacao" || s === "quote" || s === "draft") return "Cotação";
   if (s === "proforma") return "Proforma";
   throw new Error("Only Cotação or Proforma may be created via Aggregate");
+}
+
+export function isEditableCentralState(state: string | null | undefined): boolean {
+  if (!state) return false;
+  return EDITABLE_CENTRAL_STATES.has(state);
+}
+
+export function assertEditableCentralState(state: string | null | undefined): void {
+  if (!state || !state.trim()) {
+    throw new Error("Unknown / unavailable central document status — financial mutation blocked");
+  }
+  if (READONLY_CENTRAL_STATES.has(state) || !EDITABLE_CENTRAL_STATES.has(state)) {
+    throw new Error(
+      `Central document status "${state}" is read-only. Adding items or editing is not allowed.`,
+    );
+  }
+}
+
+function normalizeDiscount(discount: number | undefined, unitPrice: number, quantity: number): number {
+  if (discount == null || Number.isNaN(discount)) return 0;
+  if (discount < 0) throw new Error("Line discount cannot be negative");
+  const max = Number((unitPrice * quantity).toFixed(2));
+  const value = Number(discount.toFixed(2));
+  if (value > max) {
+    throw new Error(`Line discount ${value} exceeds line net ${max}`);
+  }
+  return value;
 }
 
 async function resolveLineItems(
@@ -130,11 +187,14 @@ async function resolveLineItems(
       });
     }
 
+    const discount = normalizeDiscount(line.discount, verified.salePrice, line.quantity);
+
     resolved.push({
       product_id: verified.productId,
       quantity: line.quantity,
+      // Always central verified price — never browser unitPrice
       unit_price: verified.salePrice,
-      discount: line.discount,
+      discount: discount > 0 ? discount : undefined,
       description: line.description,
       centralName: verified.name,
       localCode,
@@ -146,12 +206,84 @@ async function resolveLineItems(
   return resolved;
 }
 
-export async function listInvoiceIntegrations(prisma: PrismaClient, ctx: TenantContext) {
-  return prisma.invoiceIntegration.findMany({
-    where: { institutionId: ctx.institutionId },
-    orderBy: { createdAt: "desc" },
-    take: 100,
+export async function listInvoiceIntegrations(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+  filters: InvoiceListFilters = {},
+) {
+  const take = Math.min(Math.max(filters.take ?? 50, 1), 200);
+  const skip = Math.max(filters.skip ?? 0, 0);
+  const q = filters.q?.trim();
+
+  const where = {
+    institutionId: ctx.institutionId,
+    ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.state ? { requestedState: filters.state } : {}),
+    ...(filters.guestId ? { guestId: filters.guestId } : {}),
+    ...(filters.stayId ? { stayId: filters.stayId } : {}),
+    ...(filters.reservationId ? { reservationId: filters.reservationId } : {}),
+    ...(filters.hotelId ? { hotelId: filters.hotelId } : {}),
+    ...(filters.from || filters.to
+      ? {
+          createdAt: {
+            ...(filters.from ? { gte: filters.from } : {}),
+            ...(filters.to ? { lte: filters.to } : {}),
+          },
+        }
+      : {}),
+    ...(q
+      ? {
+          OR: [
+            { externalId: { contains: q } },
+            { saleKey: { contains: q } },
+            { orderReference: { contains: q } },
+            { centralCustomerId: { contains: q } },
+            { notes: { contains: q } },
+            { centralState: { contains: q } },
+          ],
+        }
+      : {}),
+  };
+
+  const [rows, total] = await Promise.all([
+    prisma.invoiceIntegration.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take,
+      skip,
+    }),
+    prisma.invoiceIntegration.count({ where }),
+  ]);
+
+  return { rows, total, take, skip };
+}
+
+/** Eligible Cotação/Proforma already linked to a stay (avoid accidental duplicates). */
+export async function findEligibleInvoiceForStay(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+  stayId: string,
+) {
+  const stay = await prisma.stay.findFirst({
+    where: { id: stayId, institutionId: ctx.institutionId },
   });
+  if (!stay) throw new Error("Stay not found");
+
+  const candidates = await prisma.invoiceIntegration.findMany({
+    where: {
+      institutionId: ctx.institutionId,
+      OR: [{ stayId }, { reservationId: stay.reservationId, guestId: stay.guestId }],
+      status: { in: ["CREATED", "DRAFT", "PENDING_SUBMISSION", "RECONCILIATION_REQUIRED"] },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+
+  return candidates.find((inv) => {
+    if (inv.status === "DRAFT" || inv.status === "PENDING_SUBMISSION") return true;
+    if (inv.status === "CREATED") return isEditableCentralState(inv.centralState);
+    return inv.status === "RECONCILIATION_REQUIRED";
+  }) ?? null;
 }
 
 export async function getInvoiceIntegration(
@@ -174,6 +306,8 @@ export async function createInvoiceDraft(
   ctx: TenantContext,
   input: {
     reservationId?: string;
+    stayId?: string;
+    hotelId?: string;
     guestId?: string;
     state: string;
     notes?: string;
@@ -202,10 +336,40 @@ export async function createInvoiceDraft(
 
   const client = getAggregateClient();
 
+  let reservationId = input.reservationId ?? null;
+  let stayId = input.stayId ?? null;
+  let hotelId = input.hotelId ?? null;
+  let guestId = input.guestId ?? null;
+
+  if (stayId) {
+    const stay = await prisma.stay.findFirst({
+      where: { id: stayId, institutionId: ctx.institutionId },
+    });
+    if (!stay) throw new Error("Stay not found");
+    stayId = stay.id;
+    reservationId = stay.reservationId;
+    hotelId = stay.hotelId;
+    guestId = guestId ?? stay.guestId;
+
+    const existing = await findEligibleInvoiceForStay(prisma, ctx, stay.id);
+    if (existing && existing.status === "CREATED") {
+      throw new Error(
+        `Stay already has editable document ${existing.externalId}. Open it to add products instead of creating a duplicate.`,
+      );
+    }
+  }
+
+  if (hotelId) {
+    const hotel = await prisma.hotel.findFirst({
+      where: { id: hotelId, institutionId: ctx.institutionId },
+    });
+    if (!hotel) throw new Error("Hotel not found");
+  }
+
   let centralCustomerId: string | null = null;
-  if (input.guestId) {
+  if (guestId) {
     const guest = await prisma.guest.findFirst({
-      where: { id: input.guestId, institutionId: ctx.institutionId },
+      where: { id: guestId, institutionId: ctx.institutionId },
       include: { customerMapping: true },
     });
     if (!guest) throw new Error("Guest not found");
@@ -224,11 +388,12 @@ export async function createInvoiceDraft(
     }
   }
 
-  if (input.reservationId) {
+  if (reservationId) {
     const reservation = await prisma.reservation.findFirst({
-      where: { id: input.reservationId, institutionId: ctx.institutionId },
+      where: { id: reservationId, institutionId: ctx.institutionId },
     });
     if (!reservation) throw new Error("Reservation not found");
+    hotelId = hotelId ?? reservation.hotelId;
   }
 
   const externalId = `HOT-INV-${randomUUID()}`;
@@ -237,8 +402,11 @@ export async function createInvoiceDraft(
     data: {
       institutionId: ctx.institutionId,
       connectionId: resolved.connection.id,
-      reservationId: input.reservationId ?? null,
-      guestId: input.guestId ?? null,
+      reservationId,
+      stayId,
+      hotelId,
+      guestId,
+      createdByUserId: ctx.userId,
       externalId,
       partner: HOTELARIA_PARTNER,
       requestedState,
@@ -261,7 +429,7 @@ export async function createInvoiceDraft(
       action: "CREATE",
       entityType: "InvoiceIntegration",
       entityId: invoice.id,
-      metadata: { externalId, requestedState },
+      metadata: { externalId, requestedState, stayId, hotelId },
     },
   });
 
@@ -567,6 +735,10 @@ export async function refreshInvoiceFromCentral(
   return updated;
 }
 
+/**
+ * Append lines to an existing central Cotação/Proforma.
+ * Always re-fetches central status first — never trusts a stale local cache alone.
+ */
 export async function addItemsToInvoice(
   prisma: PrismaClient,
   ctx: TenantContext,
@@ -577,12 +749,14 @@ export async function addItemsToInvoice(
   if (invoice.status !== "CREATED" || !invoice.saleKey) {
     throw new Error("Items can only be added to a created Cotação/Proforma");
   }
-  if (invoice.centralState !== "Cotação" && invoice.centralState !== "Proforma") {
-    throw new Error("Central invoice is not in an editable state");
-  }
+
+  // Verify live central status before mutation (stale local status cannot bypass)
+  const fresh = await refreshInvoiceFromCentral(prisma, ctx, invoiceId);
+  assertEditableCentralState(fresh.centralState);
 
   const resolved = await resolveInstitutionAggregateConnection(prisma, ctx.institutionId);
   assertAggregateScope(resolved, "sales");
+  assertAggregateScope(resolved, "products");
   const lineItems = await resolveLineItems(prisma, ctx, resolved.companyId, lines);
   const client = getAggregateClient();
 
@@ -590,13 +764,13 @@ export async function addItemsToInvoice(
   const attemptToken = `add-items-${randomUUID()}`;
   await recordAttempt(prisma, invoiceId, {
     outcome: "ADD_ITEMS_PENDING",
-    responseSummary: { token: attemptToken, lines: lineItems },
+    responseSummary: { token: attemptToken, lines: lineItems, centralState: fresh.centralState },
   });
 
   try {
     const sale = await client.addSaleItems(
       resolved.apiKey,
-      invoice.saleKey,
+      fresh.saleKey!,
       lineItems.map((l) => ({
         product_id: l.product_id,
         quantity: l.quantity,
@@ -605,14 +779,45 @@ export async function addItemsToInvoice(
         description: l.description,
       })),
     );
+    assertEditableCentralState(sale.state);
+    const prior =
+      invoice.linesJson && typeof invoice.linesJson === "object"
+        ? (invoice.linesJson as Record<string, unknown>)
+        : {};
+    const priorAppended = Array.isArray(prior.appended) ? prior.appended : [];
+    const nextLinesJson = {
+      ...prior,
+      appended: [
+        ...priorAppended,
+        { at: new Date().toISOString(), token: attemptToken, lines: lineItems },
+      ],
+    } as Prisma.InputJsonValue;
     const updated = await prisma.invoiceIntegration.update({
       where: { id: invoiceId },
-      data: persistSaleFields(sale),
+      data: {
+        ...persistSaleFields(sale),
+        linesJson: nextLinesJson,
+      },
     });
     await recordAttempt(prisma, invoiceId, {
       outcome: "ADD_ITEMS_OK",
       remoteSaleKey: sale.sale_key,
-      responseSummary: { token: attemptToken, total: sale.total },
+      responseSummary: { token: attemptToken, total: sale.total, state: sale.state },
+    });
+    await prisma.auditLog.create({
+      data: {
+        institutionId: ctx.institutionId,
+        actorUserId: ctx.userId,
+        action: "UPDATE",
+        entityType: "InvoiceIntegration",
+        entityId: invoiceId,
+        metadata: {
+          event: "invoice.items_appended",
+          token: attemptToken,
+          lineCount: lineItems.length,
+          centralState: sale.state,
+        },
+      },
     });
     return updated;
   } catch (err) {
@@ -623,4 +828,34 @@ export async function addItemsToInvoice(
     });
     throw err;
   }
+}
+
+export function summarizeInvoiceLines(linesJson: unknown): {
+  itemCount: number;
+  totalQuantity: number;
+  subtotal: number;
+  discount: number;
+  currencyHint: string;
+} {
+  const lines =
+    (linesJson as { lines?: Array<{ quantity?: number; unit_price?: number; discount?: number }> })
+      ?.lines ?? [];
+  let totalQuantity = 0;
+  let subtotal = 0;
+  let discount = 0;
+  for (const line of lines) {
+    const qty = Number(line.quantity ?? 0);
+    const price = Number(line.unit_price ?? 0);
+    const disc = Number(line.discount ?? 0);
+    totalQuantity += qty;
+    subtotal += price * qty;
+    discount += disc;
+  }
+  return {
+    itemCount: lines.length,
+    totalQuantity,
+    subtotal: Number(subtotal.toFixed(2)),
+    discount: Number(discount.toFixed(2)),
+    currencyHint: "AOA",
+  };
 }
