@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type {
+  MembershipStatus,
+  Prisma,
+  PrismaClient,
+} from "@prisma/client";
 import { ensureInstitutionRoles } from "@/modules/iam/ensure-roles";
 import { DEFAULT_AGGREGATE_IMPORT_ROLE } from "@/modules/iam/permissions";
 import {
@@ -270,15 +274,18 @@ export async function confirmOnboardingChallenge(
             select: { id: true, email: true },
           })
         : [];
-      const userByEmail = new Map(existingUsers.map((u) => [u.email, u]));
+      const userByEmail = new Map<string, { id: string; email: string }>(
+        existingUsers.map((u) => [u.email, u]),
+      );
 
       const existingMemberships = await tx.membership.findMany({
         where: { institutionId: institution.id },
         select: { userId: true, roleId: true, status: true },
       });
-      const membershipByUserId = new Map(
-        existingMemberships.map((m) => [m.userId, m]),
-      );
+      const membershipByUserId = new Map<
+        string,
+        { userId: string; roleId: string; status: MembershipStatus }
+      >(existingMemberships.map((m) => [m.userId, m]));
 
       let usersUpserted = 0;
       let adminUserId: string | null = null;
@@ -474,7 +481,10 @@ async function upsertImportedUserBatched(
     temporaryPasswordHash?: string;
     temporaryPasswordExpiresAt?: Date;
     userByEmail: Map<string, { id: string; email: string }>;
-    membershipByUserId: Map<string, { userId: string; roleId: string; status: string }>;
+    membershipByUserId: Map<
+      string,
+      { userId: string; roleId: string; status: MembershipStatus }
+    >;
   },
 ) {
   const email = remote.email.trim().toLowerCase();
@@ -486,7 +496,7 @@ async function upsertImportedUserBatched(
   const suggested = (remote.access_level || remote.role?.level || "user").toLowerCase();
   const remoteActive = (remote.state ?? "active").toLowerCase() === "active";
 
-  const importRoleId = options.isOfficialAdmin
+  const importRoleId: string = options.isOfficialAdmin
     ? roles.hotel_admin ?? roles.user!
     : roles[DEFAULT_AGGREGATE_IMPORT_ROLE] ?? roles.user!;
 
@@ -537,9 +547,24 @@ async function upsertImportedUserBatched(
 
   const existingMembership = options.membershipByUserId.get(user.id);
 
-  const roleId = options.isOfficialAdmin
+  const roleId: string = options.isOfficialAdmin
     ? importRoleId
     : existingMembership?.roleId ?? importRoleId;
+
+  // Tipagem explícita do enum evita alargamento de literal para string
+  const createStatus: MembershipStatus = options.isOfficialAdmin
+    ? "ACTIVE"
+    : remoteActive
+      ? "INVITED"
+      : "SUSPENDED";
+
+  const updateStatus: MembershipStatus = options.isOfficialAdmin
+    ? "ACTIVE"
+    : remoteActive
+      ? existingMembership?.status === "SUSPENDED"
+        ? "ACTIVE"
+        : existingMembership?.status ?? "INVITED"
+      : "SUSPENDED";
 
   const membership = await prisma.membership.upsert({
     where: { institutionId_userId: { institutionId, userId: user.id } },
@@ -547,23 +572,13 @@ async function upsertImportedUserBatched(
       institutionId,
       userId: user.id,
       roleId,
-      status: options.isOfficialAdmin
-        ? "ACTIVE"
-        : remoteActive
-          ? "INVITED"
-          : "SUSPENDED",
+      status: createStatus,
       aggregateSuggestedLevel: suggested,
     },
     update: {
-      ...(options.isOfficialAdmin ? { roleId: importRoleId, status: "ACTIVE" } : {}),
+      ...(options.isOfficialAdmin ? { roleId: importRoleId } : {}),
       aggregateSuggestedLevel: suggested,
-      status: options.isOfficialAdmin
-        ? "ACTIVE"
-        : remoteActive
-          ? existingMembership?.status === "SUSPENDED"
-            ? "ACTIVE"
-            : existingMembership?.status ?? "INVITED"
-          : "SUSPENDED",
+      status: updateStatus,
     },
     select: { userId: true, roleId: true, status: true },
   });
