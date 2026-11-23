@@ -12,12 +12,19 @@ export async function GET(request: Request) {
   if (!authz.ok) return authz.response;
   const url = new URL(request.url);
   try {
-    const requests = await listMaintenanceRequests(prisma, authz.ctx, {
+    const result = await listMaintenanceRequests(prisma, authz.ctx, {
       hotelId: url.searchParams.get("hotelId") ?? undefined,
       roomId: url.searchParams.get("roomId") ?? undefined,
       status: (url.searchParams.get("status") as never) ?? undefined,
+      assignedTo: url.searchParams.get("assignedTo") ?? undefined,
+      blocksRoom:
+        url.searchParams.get("blocksRoom") === "1"
+          ? true
+          : url.searchParams.get("blocksRoom") === "0"
+            ? false
+            : undefined,
     });
-    return NextResponse.json({ requests });
+    return NextResponse.json(result);
   } catch (err) {
     return jsonError(err);
   }
@@ -32,6 +39,9 @@ const createSchema = z.object({
   priority: z.enum(["LOW", "NORMAL", "HIGH", "CRITICAL"]).optional(),
   blocksRoom: z.boolean().optional(),
   assignedTo: z.string().max(128).optional(),
+  materialsNotes: z.string().max(5000).optional(),
+  materialsCost: z.number().nonnegative().optional(),
+  scheduledAt: z.string().optional(),
 });
 
 export async function POST(request: Request) {

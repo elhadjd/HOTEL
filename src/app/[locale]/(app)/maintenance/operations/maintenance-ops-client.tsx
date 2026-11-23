@@ -164,11 +164,46 @@ export function MaintenanceOpsClient({
                   <Button
                     type="button"
                     size="sm"
+                    variant="secondary"
                     disabled={pending}
+                    onClick={() => setStatus(r.id, "WAITING_PARTS")}
+                  >
+                    Aguardar peças
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={pending || !resolution.trim()}
                     onClick={() => setStatus(r.id, "RESOLVED")}
                   >
                     Resolver
                   </Button>
+                  {["RESOLVED", "CANCELLED"].includes(r.status) ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      disabled={pending}
+                      onClick={() => {
+                        setError(null);
+                        startTransition(async () => {
+                          const res = await fetch(`/api/v1/maintenance/${r.id}`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ action: "reopen" }),
+                          });
+                          const data = await res.json();
+                          if (!res.ok) {
+                            setError(data.error ?? "Falha");
+                            return;
+                          }
+                          refresh();
+                        });
+                      }}
+                    >
+                      Reabrir
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             </li>

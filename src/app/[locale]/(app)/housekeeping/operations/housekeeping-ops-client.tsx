@@ -22,8 +22,10 @@ type Task = {
   room: {
     id: string;
     code: string;
+    floor: string | null;
     housekeepingStatus: string;
     occupancyStatus: string;
+    maintenanceStatus?: string;
   };
   hotel: { id: string; name: string };
 };
@@ -39,20 +41,38 @@ export function HousekeepingOpsClient({
 }) {
   const [tasks, setTasks] = useState(initialTasks);
   const [hotelId, setHotelId] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [floor, setFloor] = useState("");
   const [assignee, setAssignee] = useState("");
+  const [rejectReason, setRejectReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const filtered = useMemo(
-    () => (hotelId ? tasks.filter((t) => t.hotel.id === hotelId) : tasks),
-    [tasks, hotelId],
-  );
+  const filtered = useMemo(() => {
+    return tasks.filter((t) => {
+      if (hotelId && t.hotel.id !== hotelId) return false;
+      if (statusFilter && t.status !== statusFilter) return false;
+      if (floor && (t.room.floor ?? "") !== floor) return false;
+      return true;
+    });
+  }, [tasks, hotelId, statusFilter, floor]);
+
+  const floors = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of tasks) {
+      if (t.room.floor) set.add(t.room.floor);
+    }
+    return [...set].sort();
+  }, [tasks]);
 
   function refresh() {
     startTransition(async () => {
       const params = new URLSearchParams();
       if (hotelId) params.set("hotelId", hotelId);
+      if (statusFilter) params.set("status", statusFilter);
+      if (floor) params.set("floor", floor);
+      if (assignee.trim()) params.set("assignedTo", assignee.trim());
       const res = await fetch(`/api/v1/housekeeping?${params}`);
       const data = await res.json();
       if (res.ok) setTasks(JSON.parse(JSON.stringify(data.tasks ?? [])));
@@ -84,37 +104,74 @@ export function HousekeepingOpsClient({
         <div>
           <h1 className="text-3xl font-semibold text-ink-900">Quadro de governança</h1>
           <p className="font-ui mt-1 text-sm text-stone-500">
-            Limpeza → conclusão → inspecção → CLEAN. Só após inspecção aprovada o quarto fica
-            pronto.
+            Limpeza → conclusão → inspecção → CLEAN. Um quarto sujo nunca é apresentado como
+            pronto. Conclusão sem inspecção (política explícita) também marca CLEAN.
           </p>
         </div>
-        <SearchableSelect
-          className="w-56"
-          options={[{ value: "", label: "Todos os hotéis" }, ...hotels]}
-          value={hotelId}
-          onChange={(v) => {
-            setHotelId(v);
-          }}
-          clearable={false}
-        />
       </div>
 
       {error ? <p className="font-ui text-sm text-danger">{error}</p> : null}
       {message ? <p className="font-ui text-sm text-teal-800">{message}</p> : null}
 
-      <div className="surface flex flex-wrap items-end gap-2 p-4">
+      <div className="surface grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
+        <SearchableSelect
+          options={[{ value: "", label: "Todos os hotéis" }, ...hotels]}
+          value={hotelId}
+          onChange={setHotelId}
+          clearable={false}
+        />
+        <select
+          className="h-10 rounded-md border border-sand-200 bg-white px-3 text-sm"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+        >
+          <option value="">Todos os estados</option>
+          {[
+            "PENDING",
+            "ASSIGNED",
+            "IN_PROGRESS",
+            "INSPECTION_REQUIRED",
+            "COMPLETED",
+            "REJECTED",
+          ].map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <select
+          className="h-10 rounded-md border border-sand-200 bg-white px-3 text-sm"
+          value={floor}
+          onChange={(e) => setFloor(e.target.value)}
+        >
+          <option value="">Todos os andares</option>
+          {floors.map((f) => (
+            <option key={f} value={f}>
+              Andar {f}
+            </option>
+          ))}
+        </select>
         <label className="font-ui block text-xs text-stone-500">
-          Atribuir a
+          Responsável / rejeição
           <input
             value={assignee}
             onChange={(e) => setAssignee(e.target.value)}
-            className="mt-1 h-10 w-48 rounded-md border border-sand-200 bg-white px-3 text-sm"
+            className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm"
             placeholder="Colaborador"
           />
         </label>
-        <p className="font-ui text-xs text-stone-400">
-          Use «Atribuir» numa tarefa com o nome preenchido.
-        </p>
+        <label className="font-ui block text-xs text-stone-500 sm:col-span-2">
+          Motivo de rejeição (obrigatório)
+          <input
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm"
+            placeholder="Ex.: casa de banho por limpar"
+          />
+        </label>
+        <Button type="button" size="sm" variant="secondary" disabled={pending} onClick={refresh}>
+          Actualizar lista
+        </Button>
       </div>
 
       {filtered.length === 0 ? (
@@ -131,16 +188,28 @@ export function HousekeepingOpsClient({
                 <div>
                   <p className="font-medium text-ink-900">
                     {t.hotel.name} · Quarto {t.room.code}
+                    {t.room.floor ? ` · Andar ${t.room.floor}` : ""}
                   </p>
                   <p className="font-ui mt-1 text-xs text-stone-500">
                     {t.kind} · prioridade {t.priority}
                     {t.assignedTo ? ` · ${t.assignedTo}` : " · sem atribuição"}
-                    {t.deadlineAt ? ` · prazo ${new Date(t.deadlineAt).toLocaleString("pt-PT")}` : ""}
+                    {t.deadlineAt
+                      ? ` · prazo ${new Date(t.deadlineAt).toLocaleString("pt-PT")}`
+                      : ""}
+                    {t.startedAt
+                      ? ` · início ${new Date(t.startedAt).toLocaleString("pt-PT")}`
+                      : ""}
+                    {t.completedAt
+                      ? ` · fim ${new Date(t.completedAt).toLocaleString("pt-PT")}`
+                      : ""}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-1">
                     <StatusPill value={t.status} />
                     <StatusPill value={`HK ${t.room.housekeepingStatus}`} />
                     <StatusPill value={t.room.occupancyStatus} />
+                    {t.room.maintenanceStatus ? (
+                      <StatusPill value={`M ${t.room.maintenanceStatus}`} />
+                    ) : null}
                   </div>
                   {t.inspectionResult ? (
                     <p className="font-ui mt-2 text-xs text-stone-500">
@@ -191,11 +260,30 @@ export function HousekeepingOpsClient({
                     type="button"
                     size="sm"
                     variant="ghost"
-                    disabled={pending}
-                    onClick={() => act(t.id, { action: "inspect", approved: false })}
+                    disabled={pending || !rejectReason.trim()}
+                    onClick={() =>
+                      act(t.id, {
+                        action: "inspect",
+                        approved: false,
+                        notes: rejectReason.trim(),
+                      })
+                    }
                   >
                     Rejeitar
                   </Button>
+                  {["COMPLETED", "REJECTED", "CANCELLED", "INSPECTION_REQUIRED"].includes(
+                    t.status,
+                  ) ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      disabled={pending}
+                      onClick={() => act(t.id, { action: "reopen" })}
+                    >
+                      Reabrir
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             </li>

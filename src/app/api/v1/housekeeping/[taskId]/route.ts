@@ -6,6 +6,7 @@ import {
   assignHousekeepingTask,
   completeHousekeepingTask,
   inspectHousekeepingTask,
+  reopenHousekeepingTask,
   startHousekeepingTask,
 } from "@/modules/housekeeping/housekeeping-service";
 
@@ -18,6 +19,7 @@ const bodySchema = z.discriminatedUnion("action", [
     approved: z.boolean(),
     notes: z.string().max(2000).optional(),
   }),
+  z.object({ action: z.literal("reopen"), notes: z.string().max(2000).optional() }),
 ]);
 
 export async function POST(
@@ -61,6 +63,15 @@ export async function POST(
         authz.ctx,
         taskId,
         parsed.data.requireInspection ?? true,
+      );
+      return NextResponse.json({ task });
+    }
+    if (parsed.data.action === "reopen") {
+      const task = await reopenHousekeepingTask(
+        prisma,
+        authz.ctx,
+        taskId,
+        parsed.data.notes,
       );
       return NextResponse.json({ task });
     }

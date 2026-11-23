@@ -983,21 +983,26 @@ model HousekeepingTask {
 }
 
 model MaintenanceRequest {
-  id           String                   @id @default(uuid())
-  hotelId      String                   @map("hotel_id")
-  roomId       String?                  @map("room_id")
-  title        String                   @db.VarChar(255)
-  description  String?                  @db.Text
-  category     String?                  @db.VarChar(64)
-  status       MaintenanceRequestStatus @default(OPEN)
-  priority     MaintenancePriority      @default(NORMAL)
-  assignedTo   String?                  @map("assigned_to") @db.VarChar(128)
-  blocksRoom   Boolean                  @default(false) @map("blocks_room")
-  resolution   String?                  @db.Text
-  startedAt    DateTime?                @map("started_at")
-  resolvedAt   DateTime?                @map("resolved_at")
-  createdAt    DateTime                 @default(now()) @map("created_at")
-  updatedAt    DateTime                 @updatedAt @map("updated_at")
+  id                 String                   @id @default(uuid())
+  hotelId            String                   @map("hotel_id")
+  roomId             String?                  @map("room_id")
+  title              String                   @db.VarChar(255)
+  description        String?                  @db.Text
+  category           String?                  @db.VarChar(64)
+  status             MaintenanceRequestStatus @default(OPEN)
+  priority           MaintenancePriority      @default(NORMAL)
+  assignedTo         String?                  @map("assigned_to") @db.VarChar(128)
+  blocksRoom         Boolean                  @default(false) @map("blocks_room")
+  resolution         String?                  @db.Text
+  materialsNotes     String?                  @map("materials_notes") @db.Text
+  materialsCost      Decimal?                 @map("materials_cost") @db.Decimal(14, 2)
+  interventionNotes  String?                  @map("intervention_notes") @db.Text
+  scheduledAt        DateTime?                @map("scheduled_at")
+  startedAt          DateTime?                @map("started_at")
+  resolvedAt         DateTime?                @map("resolved_at")
+  reopenedAt         DateTime?                @map("reopened_at")
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  updatedAt          DateTime                 @updatedAt @map("updated_at")
 
   hotel Hotel @relation(fields: [hotelId], references: [id], onDelete: Cascade)
   room  Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
@@ -1010,42 +1015,70 @@ model MaintenanceRequest {
 // ─── Rates ───────────────────────────────────────────────────────────────────
 
 model RatePlan {
-  id            String   @id @default(uuid())
-  hotelId       String   @map("hotel_id")
-  categoryId    String   @map("category_id")
-  name          String   @db.VarChar(120)
-  code          String   @db.VarChar(64)
-  baseAmount    Decimal  @map("base_amount") @db.Decimal(14, 2)
-  currency      String   @default("AOA") @db.Char(3)
-  weekdayOnly   Boolean  @default(false) @map("weekday_only")
-  weekendOnly   Boolean  @default(false) @map("weekend_only")
-  active        Boolean  @default(true)
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id                 String    @id @default(uuid())
+  hotelId            String    @map("hotel_id")
+  categoryId         String    @map("category_id")
+  name               String    @db.VarChar(120)
+  code               String    @db.VarChar(64)
+  description        String?   @db.Text
+  baseAmount         Decimal   @map("base_amount") @db.Decimal(14, 2)
+  currency           String    @default("AOA") @db.Char(3)
+  weekdayOnly        Boolean   @default(false) @map("weekday_only")
+  weekendOnly        Boolean   @default(false) @map("weekend_only")
+  validFrom          DateTime? @map("valid_from") @db.Date
+  validTo            DateTime? @map("valid_to") @db.Date
+  minStayNights      Int       @default(1) @map("min_stay_nights")
+  maxStayNights      Int?      @map("max_stay_nights")
+  includedOccupancy  Int       @default(2) @map("included_occupancy")
+  extraGuestAmount   Decimal?  @map("extra_guest_amount") @db.Decimal(14, 2)
+  /** Higher priority wins when multiple plans match a night */
+  priority           Int       @default(0)
+  active             Boolean   @default(true)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  hotel      Hotel          @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  category   RoomCategory   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  hotel      Hotel              @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  category   RoomCategory       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   seasonals  SeasonalRate[]
+  audits     RatePlanAudit[]
 
   @@unique([hotelId, code])
   @@index([hotelId, categoryId, active])
+  @@index([hotelId, validFrom, validTo])
   @@map("rate_plans")
 }
 
 model SeasonalRate {
-  id         String   @id @default(uuid())
-  ratePlanId String   @map("rate_plan_id")
-  name       String   @db.VarChar(120)
-  startDate  DateTime @map("start_date") @db.Date
-  endDate    DateTime @map("end_date") @db.Date
-  amount     Decimal  @db.Decimal(14, 2)
-  minOccupancy Int?   @map("min_occupancy")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id           String   @id @default(uuid())
+  ratePlanId   String   @map("rate_plan_id")
+  name         String   @db.VarChar(120)
+  startDate    DateTime @map("start_date") @db.Date
+  endDate      DateTime @map("end_date") @db.Date
+  amount       Decimal  @db.Decimal(14, 2)
+  minOccupancy Int?     @map("min_occupancy")
+  weekendOnly  Boolean  @default(false) @map("weekend_only")
+  weekdayOnly  Boolean  @default(false) @map("weekday_only")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   ratePlan RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
 
   @@index([ratePlanId, startDate, endDate])
   @@map("seasonal_rates")
+}
+
+model RatePlanAudit {
+  id          String   @id @default(uuid())
+  ratePlanId  String   @map("rate_plan_id")
+  actorUserId String?  @map("actor_user_id")
+  action      String   @db.VarChar(64)
+  beforeJson  Json?    @map("before_json")
+  afterJson   Json?    @map("after_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  ratePlan RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+
+  @@index([ratePlanId, createdAt])
+  @@map("rate_plan_audits")
 }
 
 // ─── SIGESC Aggregate ────────────────────────────────────────────────────────

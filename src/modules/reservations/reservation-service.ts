@@ -109,6 +109,62 @@ export async function createReservation(
   const status = input.status ?? "PENDING";
   const roomIds = input.roomIds ?? [];
 
+  // Server-side accommodation quote when rooms are assigned (never trust browser prices)
+  const roomQuotes: Array<{
+    roomId: string;
+    categoryId: string;
+    nightlyRate: number | null;
+    subtotal: number;
+  }> = [];
+  let operationalTotal: number | null = null;
+  let quoteCurrency = "AOA";
+
+  if (roomIds.length > 0) {
+    const { quoteAccommodation } = await import("@/modules/rates/rates-service");
+    const rooms = await prisma.room.findMany({
+      where: { id: { in: roomIds }, hotelId: input.hotelId },
+      select: { id: true, categoryId: true },
+    });
+    if (rooms.length !== roomIds.length) {
+      throw new Error("One or more rooms were not found for this hotel");
+    }
+    let sum = 0;
+    for (const room of rooms) {
+      try {
+        const quote = await quoteAccommodation(prisma, ctx, {
+          hotelId: input.hotelId,
+          categoryId: room.categoryId,
+          arrivalDate: arrival,
+          departureDate: departure,
+          occupants: (input.adults ?? 1) + (input.children ?? 0),
+        });
+        quoteCurrency = quote.currency;
+        const nightly =
+          quote.nightCount > 0
+            ? Number((quote.subtotal / quote.nightCount).toFixed(2))
+            : null;
+        roomQuotes.push({
+          roomId: room.id,
+          categoryId: room.categoryId,
+          nightlyRate: nightly,
+          subtotal: quote.subtotal,
+        });
+        sum += quote.subtotal;
+      } catch {
+        // No matching rate plan — leave rates null; reservation still allowed
+        roomQuotes.push({
+          roomId: room.id,
+          categoryId: room.categoryId,
+          nightlyRate: null,
+          subtotal: 0,
+        });
+      }
+    }
+    if (roomQuotes.some((q) => q.nightlyRate != null)) {
+      operationalTotal = Number(sum.toFixed(2));
+    }
+  }
+
   return prisma.$transaction(async (tx) => {
     for (const roomId of roomIds) {
       await assertRoomAssignable(tx, {
@@ -118,6 +174,8 @@ export async function createReservation(
         departure,
       });
     }
+
+    const quoteByRoom = new Map(roomQuotes.map((q) => [q.roomId, q]));
 
     const reservation = await tx.reservation.create({
       data: {
@@ -131,11 +189,14 @@ export async function createReservation(
         children: input.children ?? 0,
         source: input.source ?? null,
         internalNotes: input.internalNotes ?? null,
+        operationalTotal,
+        currency: quoteCurrency,
         rooms: {
           create: roomIds.map((roomId) => ({
             roomId,
             arrivalDate: arrival,
             departureDate: departure,
+            nightlyRate: quoteByRoom.get(roomId)?.nightlyRate ?? null,
           })),
         },
         guests: input.primaryGuestId
@@ -147,7 +208,9 @@ export async function createReservation(
           create: {
             fromStatus: null,
             toStatus: status,
-            note: `Created with ${roomIds.length} room(s)`,
+            note: `Created with ${roomIds.length} room(s)${
+              operationalTotal != null ? `; quoted ${operationalTotal} ${quoteCurrency}` : ""
+            }`,
             actorUserId: ctx.userId,
           },
         },
@@ -174,7 +237,12 @@ export async function createReservation(
         action: "CREATE",
         entityType: "Reservation",
         entityId: reservation.id,
-        metadata: { code: reservation.code, status },
+        metadata: {
+          code: reservation.code,
+          status,
+          operationalTotal,
+          quotedServerSide: operationalTotal != null,
+        },
       },
     });
 

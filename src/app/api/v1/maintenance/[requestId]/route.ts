@@ -2,9 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/server/db";
 import { jsonError, requireTenant } from "@/server/api-auth";
-import { updateMaintenanceStatus } from "@/modules/maintenance/maintenance-service";
+import {
+  reopenMaintenanceRequest,
+  updateMaintenanceStatus,
+} from "@/modules/maintenance/maintenance-service";
 
-const bodySchema = z.object({
+const updateSchema = z.object({
+  action: z.literal("update").optional(),
   status: z.enum([
     "OPEN",
     "ASSIGNED",
@@ -15,6 +19,14 @@ const bodySchema = z.object({
   ]),
   assignedTo: z.string().max(128).optional(),
   resolution: z.string().max(5000).optional(),
+  materialsNotes: z.string().max(5000).optional(),
+  materialsCost: z.number().nonnegative().nullable().optional(),
+  interventionNotes: z.string().max(5000).optional(),
+});
+
+const reopenSchema = z.object({
+  action: z.literal("reopen"),
+  notes: z.string().max(2000).optional(),
 });
 
 export async function POST(
@@ -28,7 +40,29 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
-  const parsed = bodySchema.safeParse(json);
+
+  const asObj = json && typeof json === "object" ? (json as Record<string, unknown>) : {};
+  if (asObj.action === "reopen") {
+    const parsed = reopenSchema.safeParse(json);
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid maintenance reopen" }, { status: 400 });
+    }
+    const authz = await requireTenant("maintenance.manage");
+    if (!authz.ok) return authz.response;
+    try {
+      const row = await reopenMaintenanceRequest(
+        prisma,
+        authz.ctx,
+        requestId,
+        parsed.data.notes,
+      );
+      return NextResponse.json({ request: row });
+    } catch (err) {
+      return jsonError(err);
+    }
+  }
+
+  const parsed = updateSchema.safeParse(json);
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid maintenance update" }, { status: 400 });
   }
