@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select";
@@ -64,6 +64,7 @@ export function InvoiceDetailClient({
   const [productPick, setProductPick] = useState("");
   const [qty, setQty] = useState("1");
   const [discount, setDiscount] = useState("0");
+  const [mappingOptions, setMappingOptions] = useState(mappings);
 
   const editable =
     invoice.status === "CREATED" &&
@@ -79,8 +80,47 @@ export function InvoiceDetailClient({
       subtotal += Number(line.unit_price) * Number(line.quantity);
       disc += Number(line.discount ?? 0);
     }
-    return { subtotal, disc, total: subtotal - disc };
+    return {
+      subtotal: Number(subtotal.toFixed(2)),
+      disc: Number(disc.toFixed(2)),
+      total: Number((subtotal - disc).toFixed(2)),
+    };
   }, [invoice.lines]);
+
+  const centralDiscrepancy =
+    invoice.centralTotal != null &&
+    Math.abs(Number(invoice.centralTotal) - localSummary.total) > 0.01;
+
+  const searchMappings = useCallback(async (query: string) => {
+    const params = new URLSearchParams({ take: "50", activeOnly: "1" });
+    if (query.trim()) params.set("q", query.trim());
+    const res = await fetch(`/api/v1/integrations/sigesc/catalog-mappings?${params}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? "Falha ao pesquisar produtos");
+    const next = (data.mappings as Array<{
+      localCode: string;
+      localLabel?: string | null;
+      centralName?: string | null;
+      centralProductId?: string;
+      centralSalePrice?: unknown;
+      active?: boolean;
+    }>)
+      .filter((m) => m.active !== false)
+      .map((m) => ({
+        value: m.localCode,
+        label: m.localLabel || m.centralName || m.localCode,
+        keywords: [m.localCode, m.centralProductId ?? "", m.centralName ?? ""],
+        description:
+          m.centralSalePrice != null ? `Ref. ${Number(m.centralSalePrice)} AOA` : undefined,
+        unitPriceHint: m.centralSalePrice != null ? Number(m.centralSalePrice) : null,
+      }));
+    setMappingOptions((prev) => {
+      const byValue = new Map(prev.map((m) => [m.value, m]));
+      for (const m of next) byValue.set(m.value, m);
+      return [...byValue.values()];
+    });
+    return next;
+  }, []);
 
   function act(path: "submit" | "reconcile" | "refresh") {
     setError(null);
@@ -109,11 +149,16 @@ export function InvoiceDetailClient({
       setError("Seleccione um produto.");
       return;
     }
+    const idempotencyKey =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? `ui-append-${crypto.randomUUID()}`
+        : `ui-append-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     startTransition(async () => {
       const res = await fetch(`/api/v1/integrations/sigesc/invoices/${invoice.id}/items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          idempotencyKey,
           lines: [
             {
               mappingLocalCode: productPick,
@@ -126,9 +171,11 @@ export function InvoiceDetailClient({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Falha ao adicionar produtos");
+        if (data.invoice) setInvoice((prev) => ({ ...prev, ...normalizeInvoice(data.invoice, prev) }));
         return;
       }
-      setMessage("Produtos adicionados no documento central.");
+      if (data.invoice) setInvoice((prev) => ({ ...prev, ...normalizeInvoice(data.invoice, prev) }));
+      setMessage("Produtos adicionados no documento central. Totais = resposta Aggregate.");
       setProductPick("");
       setQty("1");
       setDiscount("0");
@@ -227,6 +274,12 @@ export function InvoiceDetailClient({
             <div className="border-t border-sand-200 pt-2 text-xs text-stone-500">
               Estimativa linhas locais: {money(localSummary.total, invoice.currency)}
             </div>
+            {centralDiscrepancy ? (
+              <p className="mt-2 text-xs text-amber-800">
+                Diferença face ao total central — prevalece o valor Aggregate (
+                {money(invoice.centralTotal, invoice.currency)}).
+              </p>
+            ) : null}
           </dl>
         </div>
       </div>
@@ -234,6 +287,10 @@ export function InvoiceDetailClient({
       <div className="surface overflow-hidden">
         <div className="border-b border-sand-200 px-5 py-4">
           <h2 className="text-lg font-semibold text-ink-900">Linhas</h2>
+          <p className="font-ui mt-1 text-xs text-stone-500">
+            Append-only: a Aggregate API não expõe remoção nem alteração de quantidade de linhas
+            existentes. Não simulamos edições locais.
+          </p>
         </div>
         <table className="data-table">
           <thead>
@@ -273,16 +330,20 @@ export function InvoiceDetailClient({
           <h2 className="text-lg font-semibold text-ink-900">Adicionar produtos</h2>
           <p className="font-ui mt-1 text-sm text-stone-500">
             Actualiza o mesmo documento central ({invoice.centralState}). Publicado/Pago bloqueiam
-            mutações no servidor após verificação do estado actual.
+            mutações no servidor após verificação do estado actual. Cada pedido leva uma chave de
+            idempotência local; retries com a mesma chave não voltam a chamar Aggregate se
+            ADD_ITEMS_OK já existir.
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-[1.5fr_0.5fr_0.5fr_auto]">
             <SearchableSelect
-              options={mappings}
+              options={mappingOptions}
               value={productPick}
               onChange={setProductPick}
+              onSearch={searchMappings}
               labels={{
                 placeholder: "Produto / SKU",
                 searchPlaceholder: "Nome, código…",
+                refineSearch: "Catálogo grande — refine a pesquisa no servidor.",
               }}
             />
             <input

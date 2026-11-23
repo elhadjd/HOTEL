@@ -6,6 +6,8 @@ import { addItemsToInvoice } from "@/modules/sigesc-integration/invoices/invoice
 import { mapAggregateError } from "@/modules/sigesc-integration/connection-context";
 
 const bodySchema = z.object({
+  /** Client-stable key so retries do not double-append when ADD_ITEMS_OK already exists. */
+  idempotencyKey: z.string().min(8).max(128).optional(),
   lines: z
     .array(
       z.object({
@@ -46,6 +48,7 @@ export async function POST(
         ...l,
         centralProductId: l.centralProductId !== undefined ? String(l.centralProductId) : undefined,
       })),
+      { idempotencyKey: parsed.data.idempotencyKey },
     );
     return NextResponse.json({ invoice });
   } catch (err) {

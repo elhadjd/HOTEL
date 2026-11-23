@@ -18,12 +18,23 @@ const upsertSchema = z
   })
   .strict();
 
-export async function GET() {
+export async function GET(request: Request) {
   const authz = await requireTenant("integrations.products");
   if (!authz.ok) return authz.response;
   try {
-    const mappings = await listCatalogMappings(prisma, authz.ctx);
-    return NextResponse.json({ mappings });
+    const url = new URL(request.url);
+    const q = url.searchParams.get("q") ?? undefined;
+    const takeRaw = url.searchParams.get("take");
+    const activeOnly = url.searchParams.get("activeOnly") === "1";
+    const mappings = await listCatalogMappings(prisma, authz.ctx, {
+      q,
+      take: takeRaw ? Number(takeRaw) || 50 : q ? 50 : undefined,
+      activeOnly: activeOnly || undefined,
+    });
+    return NextResponse.json({
+      mappings,
+      capped: Boolean(q || takeRaw) && mappings.length >= (takeRaw ? Number(takeRaw) || 50 : 50),
+    });
   } catch (err) {
     const mapped = mapAggregateError(err);
     return NextResponse.json({ error: mapped.message }, { status: mapped.status });

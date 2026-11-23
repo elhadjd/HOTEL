@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, RefreshCw, Send, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, RefreshCw, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select";
@@ -47,14 +47,59 @@ type LineDraft = {
   label: string;
 };
 
+const PAGE_SIZE = 20;
+
 function money(value: number | null | undefined, currency = "AOA") {
   if (value == null || Number.isNaN(value)) return "—";
   return `${value.toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 }
 
+function mapGuestOptions(
+  guests: Array<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    email?: string | null;
+    phone?: string | null;
+    customerMapping?: { externalCustomerId?: string | null; syncStatus?: string } | null;
+  }>,
+): SearchableOption[] {
+  return guests.map((g) => ({
+    value: g.id,
+    label: `${g.firstName} ${g.lastName}`,
+    keywords: [g.email ?? "", g.phone ?? "", g.customerMapping?.externalCustomerId ?? ""],
+    description:
+      g.customerMapping?.syncStatus === "LINKED" ? "Cliente SIGESC ligado" : "Sem ligação",
+  }));
+}
+
+function mapMappingOptions(
+  mappings: Array<{
+    localCode: string;
+    localLabel?: string | null;
+    centralName?: string | null;
+    centralProductId?: string;
+    centralSalePrice?: unknown;
+    active?: boolean;
+  }>,
+): Array<SearchableOption & { unitPriceHint?: number | null }> {
+  return mappings
+    .filter((m) => m.active !== false)
+    .map((m) => ({
+      value: m.localCode,
+      label: m.localLabel || m.centralName || m.localCode,
+      keywords: [m.localCode, m.centralProductId ?? "", m.centralName ?? ""],
+      description:
+        m.centralSalePrice != null ? `Ref. ${Number(m.centralSalePrice)} AOA` : undefined,
+      unitPriceHint: m.centralSalePrice != null ? Number(m.centralSalePrice) : null,
+    }));
+}
+
 export function InvoicesClient({
   invoices: initial,
   total: initialTotal,
+  take: initialTake = PAGE_SIZE,
+  skip: initialSkip = 0,
   guests,
   reservations,
   stays,
@@ -64,6 +109,8 @@ export function InvoicesClient({
 }: {
   invoices: InvoiceRow[];
   total: number;
+  take?: number;
+  skip?: number;
   guests: SearchableOption[];
   reservations: SearchableOption[];
   stays: SearchableOption[];
@@ -72,12 +119,16 @@ export function InvoicesClient({
   prefill?: { stayId?: string; guestId?: string; hotelId?: string };
 }) {
   const router = useRouter();
-  const [rows] = useState(initial);
-  const [total] = useState(initialTotal);
+  const [rows, setRows] = useState(initial);
+  const [total, setTotal] = useState(initialTotal);
+  const [take] = useState(initialTake || PAGE_SIZE);
+  const [skip, setSkip] = useState(initialSkip);
+  const [listLoading, setListLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [createOpen, setCreateOpen] = useState(Boolean(prefill?.stayId));
+  const fetchGen = useRef(0);
 
   const [q, setQ] = useState("");
   const [stateFilter, setStateFilter] = useState("");
@@ -85,6 +136,7 @@ export function InvoicesClient({
   const [guestFilter, setGuestFilter] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
 
   const [guestId, setGuestId] = useState(prefill?.guestId ?? "");
   const [reservationId, setReservationId] = useState("");
@@ -94,41 +146,89 @@ export function InvoicesClient({
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([]);
   const [productPick, setProductPick] = useState("");
+  const [mappingOptions, setMappingOptions] = useState(mappings);
 
-  const filteredRows = useMemo(() => {
-    return rows.filter((inv) => {
-      if (stateFilter && inv.requestedState !== stateFilter) return false;
-      if (statusFilter && inv.status !== statusFilter) return false;
-      if (guestFilter && inv.guestId !== guestFilter) return false;
-      if (from && new Date(inv.createdAt) < new Date(from)) return false;
-      if (to && new Date(inv.createdAt) > new Date(`${to}T23:59:59`)) return false;
-      if (q.trim()) {
-        const hay = [
-          inv.externalId,
-          inv.saleKey,
-          inv.centralState,
-          inv.guestLabel,
-          inv.hotelLabel,
-          inv.status,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        if (!hay.includes(q.trim().toLowerCase())) return false;
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedQ(q.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [q]);
+
+  const loadPage = useCallback(
+    async (nextSkip: number, filters: {
+      q: string;
+      state: string;
+      status: string;
+      guestId: string;
+      from: string;
+      to: string;
+    }) => {
+      const gen = ++fetchGen.current;
+      setListLoading(true);
+      try {
+        const params = new URLSearchParams();
+        params.set("take", String(take));
+        params.set("skip", String(nextSkip));
+        if (filters.q) params.set("q", filters.q);
+        if (filters.state) params.set("state", filters.state);
+        if (filters.status) params.set("status", filters.status);
+        if (filters.guestId) params.set("guestId", filters.guestId);
+        if (filters.from) params.set("from", filters.from);
+        if (filters.to) params.set("to", filters.to);
+        const res = await fetch(`/api/v1/integrations/sigesc/invoices?${params}`);
+        const data = await res.json().catch(() => ({}));
+        if (fetchGen.current !== gen) return;
+        if (!res.ok) {
+          setError(data.error ?? "Falha ao carregar documentos");
+          return;
+        }
+        setRows(
+          (data.invoices as InvoiceRow[]).map((inv) => ({
+            ...inv,
+            createdAt:
+              typeof inv.createdAt === "string"
+                ? inv.createdAt
+                : new Date(inv.createdAt).toISOString(),
+            updatedAt:
+              typeof inv.updatedAt === "string"
+                ? inv.updatedAt
+                : new Date(inv.updatedAt).toISOString(),
+          })),
+        );
+        setTotal(Number(data.total) || 0);
+        setSkip(Number(data.skip) || nextSkip);
+        setError(null);
+      } finally {
+        if (fetchGen.current === gen) setListLoading(false);
       }
-      return true;
+    },
+    [take],
+  );
+
+  useEffect(() => {
+    void loadPage(0, {
+      q: debouncedQ,
+      state: stateFilter,
+      status: statusFilter,
+      guestId: guestFilter,
+      from,
+      to,
     });
-  }, [rows, q, stateFilter, statusFilter, guestFilter, from, to]);
+  }, [debouncedQ, stateFilter, statusFilter, guestFilter, from, to, loadPage]);
+
+  const pageIndex = Math.floor(skip / take);
+  const pageCount = Math.max(1, Math.ceil(total / take));
+  const pageFrom = total === 0 ? 0 : skip + 1;
+  const pageTo = Math.min(skip + rows.length, total);
 
   const summaryCards = useMemo(() => {
-    const created = filteredRows.filter((r) => r.status === "CREATED").length;
-    const drafts = filteredRows.filter((r) => r.status === "DRAFT").length;
-    const editable = filteredRows.filter(
+    const created = rows.filter((r) => r.status === "CREATED").length;
+    const drafts = rows.filter((r) => r.status === "DRAFT").length;
+    const editable = rows.filter(
       (r) => r.centralState === "Cotação" || r.centralState === "Proforma",
     ).length;
-    const centralTotal = filteredRows.reduce((acc, r) => acc + (r.centralTotal ?? 0), 0);
+    const centralTotal = rows.reduce((acc, r) => acc + (r.centralTotal ?? 0), 0);
     return { created, drafts, editable, centralTotal };
-  }, [filteredRows]);
+  }, [rows]);
 
   const liveTotals = useMemo(() => {
     let subtotal = 0;
@@ -147,8 +247,34 @@ export function InvoicesClient({
     };
   }, [lines]);
 
+  const searchGuests = useCallback(async (query: string): Promise<SearchableOption[]> => {
+    const params = new URLSearchParams({ take: "50" });
+    if (query.trim()) params.set("q", query.trim());
+    const res = await fetch(`/api/v1/guests?${params}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? "Falha ao pesquisar hóspedes");
+    return mapGuestOptions(data.guests ?? []);
+  }, []);
+
+  const searchMappings = useCallback(async (query: string) => {
+    const params = new URLSearchParams({ take: "50", activeOnly: "1" });
+    if (query.trim()) params.set("q", query.trim());
+    const res = await fetch(`/api/v1/integrations/sigesc/catalog-mappings?${params}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? "Falha ao pesquisar produtos");
+    const next = mapMappingOptions(data.mappings ?? []);
+    setMappingOptions((prev) => {
+      const byValue = new Map(prev.map((m) => [m.value, m]));
+      for (const m of next) byValue.set(m.value, m);
+      return [...byValue.values()];
+    });
+    return next;
+  }, []);
+
   function addProductLine() {
-    const mapping = mappings.find((m) => m.value === productPick);
+    const mapping =
+      mappingOptions.find((m) => m.value === productPick) ??
+      mappings.find((m) => m.value === productPick);
     if (!mapping) return;
     setLines((prev) => [
       ...prev,
@@ -207,11 +333,26 @@ export function InvoicesClient({
 
   function clearFilters() {
     setQ("");
+    setDebouncedQ("");
     setStateFilter("");
     setStatusFilter("");
     setGuestFilter("");
     setFrom("");
     setTo("");
+  }
+
+  function goPage(delta: number) {
+    const nextSkip = Math.max(0, skip + delta * take);
+    if (nextSkip === skip) return;
+    if (nextSkip >= total && total > 0) return;
+    void loadPage(nextSkip, {
+      q: debouncedQ,
+      state: stateFilter,
+      status: statusFilter,
+      guestId: guestFilter,
+      from,
+      to,
+    });
   }
 
   return (
@@ -221,7 +362,8 @@ export function InvoicesClient({
           A Aggregate API só cria <strong>Cotação</strong> ou <strong>Proforma</strong>. Publicar,
           cobrar e stock continuam no SIGESC. O preço de linha é sempre o{" "}
           <strong>sale_price</strong> central verificado; descontos de linha são suportados pelo
-          contrato.
+          contrato. Documentos existentes são append-only — não há remoção/edição de quantidades
+          via Aggregate.
         </p>
       </div>
 
@@ -231,17 +373,22 @@ export function InvoicesClient({
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="surface p-4">
           <p className="font-ui text-[11px] uppercase tracking-[0.16em] text-stone-400">Documentos</p>
-          <p className="mt-2 text-2xl font-semibold text-ink-900">{filteredRows.length}</p>
-          <p className="font-ui text-xs text-stone-500">de {total} no total</p>
+          <p className="mt-2 text-2xl font-semibold text-ink-900">{total}</p>
+          <p className="font-ui text-xs text-stone-500">
+            {listLoading ? "A actualizar…" : `a mostrar ${pageFrom}–${pageTo}`}
+          </p>
         </div>
         <div className="surface p-4">
           <p className="font-ui text-[11px] uppercase tracking-[0.16em] text-stone-400">No SIGESC</p>
           <p className="mt-2 text-2xl font-semibold text-ink-900">{summaryCards.created}</p>
-          <p className="font-ui text-xs text-stone-500">{summaryCards.editable} editáveis</p>
+          <p className="font-ui text-xs text-stone-500">
+            {summaryCards.editable} editáveis · nesta página
+          </p>
         </div>
         <div className="surface p-4">
           <p className="font-ui text-[11px] uppercase tracking-[0.16em] text-stone-400">Rascunhos</p>
           <p className="mt-2 text-2xl font-semibold text-ink-900">{summaryCards.drafts}</p>
+          <p className="font-ui text-xs text-stone-500">nesta página</p>
         </div>
         <div className="surface p-4">
           <p className="font-ui text-[11px] uppercase tracking-[0.16em] text-stone-400">
@@ -250,7 +397,7 @@ export function InvoicesClient({
           <p className="mt-2 text-2xl font-semibold text-ink-900">
             {money(summaryCards.centralTotal)}
           </p>
-          <p className="font-ui text-xs text-stone-500">Só valores devolvidos pelo SIGESC</p>
+          <p className="font-ui text-xs text-stone-500">Só valores SIGESC · nesta página</p>
         </div>
       </div>
 
@@ -259,7 +406,8 @@ export function InvoicesClient({
           <div>
             <h3 className="text-lg font-semibold text-ink-900">Documentos financeiros</h3>
             <p className="font-ui text-xs text-stone-500">
-              Pesquisa, filtros e acesso ao detalhe com adição contínua de produtos.
+              Pesquisa e filtros no servidor — resultados em todas as páginas autorizadas do
+              tenant.
             </p>
           </div>
           <Button type="button" onClick={() => setCreateOpen(true)} className="gap-2">
@@ -310,7 +458,12 @@ export function InvoicesClient({
               options={guests}
               value={guestFilter}
               onChange={setGuestFilter}
-              labels={{ placeholder: "Todos", searchPlaceholder: "Nome, email…" }}
+              onSearch={searchGuests}
+              labels={{
+                placeholder: "Todos",
+                searchPlaceholder: "Nome, email…",
+                refineSearch: "Mais de 50 hóspedes — refine a pesquisa.",
+              }}
               className="mt-1"
             />
           </label>
@@ -343,82 +496,113 @@ export function InvoicesClient({
       </div>
 
       <div className="surface overflow-hidden">
-        {filteredRows.length === 0 ? (
+        {rows.length === 0 ? (
           <EmptyState
             title="Sem documentos"
             description="Crie uma cotação/proforma ou ajuste os filtros."
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="data-table min-w-[960px]">
-              <thead>
-                <tr>
-                  <th>Documento</th>
-                  <th>Tipo / estado</th>
-                  <th>Contexto</th>
-                  <th>Itens</th>
-                  <th>Totais SIGESC</th>
-                  <th>Actualizado</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRows.map((inv) => (
-                  <tr key={inv.id}>
-                    <td>
-                      <div className="font-medium text-ink-900">{inv.externalId}</div>
-                      <div className="text-xs text-stone-500">{inv.saleKey ?? "sem sale_key"}</div>
-                    </td>
-                    <td>
-                      <div className="flex flex-wrap gap-1">
-                        <StatusPill value={inv.requestedState} />
-                        <StatusPill value={inv.status} />
-                        {inv.centralState ? <StatusPill value={inv.centralState} /> : null}
-                      </div>
-                      {inv.lastError ? (
-                        <p className="mt-1 text-xs text-danger">{inv.lastError}</p>
-                      ) : null}
-                    </td>
-                    <td>
-                      <div className="text-stone-700">{inv.guestLabel ?? "—"}</div>
-                      <div className="text-xs text-stone-500">{inv.hotelLabel ?? "—"}</div>
-                    </td>
-                    <td>
-                      {inv.summary.itemCount} · qty {inv.summary.totalQuantity}
-                      {inv.summary.discount > 0 ? (
-                        <div className="text-xs text-stone-500">
-                          desc. {money(inv.summary.discount, inv.currency)}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td>
-                      {inv.centralTotal != null ? (
-                        <>
-                          <div className="font-medium">{money(inv.centralTotal, inv.currency)}</div>
-                          <div className="text-xs text-stone-500">
-                            Sub {money(inv.centralSubtotal, inv.currency)}
-                          </div>
-                        </>
-                      ) : (
-                        <span className="text-stone-400">Pendente</span>
-                      )}
-                    </td>
-                    <td className="text-xs text-stone-500">
-                      {new Date(inv.updatedAt).toLocaleString("pt-PT")}
-                    </td>
-                    <td>
-                      <Link
-                        href={`/integrations/invoices/${inv.id}`}
-                        className="text-teal-700 hover:underline"
-                      >
-                        Abrir
-                      </Link>
-                    </td>
+          <>
+            <div className="overflow-x-auto">
+              <table className="data-table min-w-[960px]">
+                <thead>
+                  <tr>
+                    <th>Documento</th>
+                    <th>Tipo / estado</th>
+                    <th>Contexto</th>
+                    <th>Itens</th>
+                    <th>Totais SIGESC</th>
+                    <th>Actualizado</th>
+                    <th></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {rows.map((inv) => (
+                    <tr key={inv.id}>
+                      <td>
+                        <div className="font-medium text-ink-900">{inv.externalId}</div>
+                        <div className="text-xs text-stone-500">{inv.saleKey ?? "sem sale_key"}</div>
+                      </td>
+                      <td>
+                        <div className="flex flex-wrap gap-1">
+                          <StatusPill value={inv.requestedState} />
+                          <StatusPill value={inv.status} />
+                          {inv.centralState ? <StatusPill value={inv.centralState} /> : null}
+                        </div>
+                        {inv.lastError ? (
+                          <p className="mt-1 text-xs text-danger">{inv.lastError}</p>
+                        ) : null}
+                      </td>
+                      <td>
+                        <div className="text-stone-700">{inv.guestLabel ?? "—"}</div>
+                        <div className="text-xs text-stone-500">{inv.hotelLabel ?? "—"}</div>
+                      </td>
+                      <td>
+                        {inv.summary.itemCount} · qty {inv.summary.totalQuantity}
+                        {inv.summary.discount > 0 ? (
+                          <div className="text-xs text-stone-500">
+                            desc. {money(inv.summary.discount, inv.currency)}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td>
+                        {inv.centralTotal != null ? (
+                          <>
+                            <div className="font-medium">{money(inv.centralTotal, inv.currency)}</div>
+                            <div className="text-xs text-stone-500">
+                              Sub {money(inv.centralSubtotal, inv.currency)}
+                            </div>
+                          </>
+                        ) : (
+                          <span className="text-stone-400">Pendente</span>
+                        )}
+                      </td>
+                      <td className="text-xs text-stone-500">
+                        {new Date(inv.updatedAt).toLocaleString("pt-PT")}
+                      </td>
+                      <td>
+                        <Link
+                          href={`/integrations/invoices/${inv.id}`}
+                          className="text-teal-700 hover:underline"
+                        >
+                          Abrir
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="font-ui flex flex-wrap items-center justify-between gap-3 border-t border-sand-100 px-4 py-3 text-sm">
+              <p className="text-stone-500">
+                Página {pageIndex + 1} de {pageCount} · {total} resultado{total === 1 ? "" : "s"}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={listLoading || skip <= 0}
+                  onClick={() => goPage(-1)}
+                  className="gap-1"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Anterior
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={listLoading || skip + take >= total}
+                  onClick={() => goPage(1)}
+                  className="gap-1"
+                >
+                  Seguinte
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
@@ -462,9 +646,11 @@ export function InvoicesClient({
                       options={guests}
                       value={guestId}
                       onChange={setGuestId}
+                      onSearch={searchGuests}
                       labels={{
                         placeholder: "Seleccionar hóspede",
                         searchPlaceholder: "Nome, email, telefone…",
+                        refineSearch: "Mais resultados existem — refine a pesquisa.",
                       }}
                     />
                   </label>
@@ -526,13 +712,15 @@ export function InvoicesClient({
                   <div className="flex gap-2">
                     <SearchableSelect
                       className="flex-1"
-                      options={mappings}
+                      options={mappingOptions}
                       value={productPick}
                       onChange={setProductPick}
+                      onSearch={searchMappings}
                       labels={{
                         placeholder: "Pesquisar produto / SKU",
                         searchPlaceholder: "Nome, código, SKU…",
                         empty: "Configure mapeamentos de catálogo",
+                        refineSearch: "Catálogo grande — refine a pesquisa no servidor.",
                       }}
                     />
                     <Button type="button" variant="secondary" onClick={addProductLine}>
@@ -611,7 +799,7 @@ export function InvoicesClient({
                   </h4>
                   <p className="font-ui mt-1 text-xs text-stone-500">
                     Totais oficiais só após submissão — esta estimativa usa preços centrais
-                    verificados em cache do mapeamento.
+                    verificados em cache do mapeamento e nunca substitui a resposta Aggregate.
                   </p>
                   <dl className="font-ui mt-3 space-y-1 text-sm">
                     <div className="flex justify-between">
@@ -631,7 +819,11 @@ export function InvoicesClient({
               </div>
 
               <div className="border-t border-sand-200 bg-white px-5 py-4">
-                <Button type="submit" className="w-full" disabled={pending || mappings.length === 0}>
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={pending || mappingOptions.length === 0}
+                >
                   {pending ? "A gravar…" : "Criar rascunho e abrir"}
                 </Button>
               </div>
