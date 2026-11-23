@@ -17,6 +17,8 @@ import {
   Package,
   FileText,
   Contact,
+  LayoutGrid,
+  UtensilsCrossed,
   type LucideIcon,
 } from "lucide-react";
 
@@ -38,27 +40,38 @@ export const APP_NAV_GROUPS = [
     labelKey: "nav.groupOverview",
     items: [
       { href: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
+      { href: "/dashboard/front-desk", labelKey: "nav.frontDesk", icon: ConciergeBell },
       { href: "/hotels", labelKey: "nav.hotels", icon: Building2 },
-      { href: "/room-categories", labelKey: "nav.roomCategories", icon: Tags },
-      { href: "/rooms", labelKey: "nav.rooms", icon: BedDouble },
     ],
   },
   {
     id: "front-desk",
     labelKey: "nav.groupFrontDesk",
     items: [
-      { href: "/reservations", labelKey: "nav.reservations", icon: ConciergeBell },
+      { href: "/check-in", labelKey: "nav.checkIn", icon: LogIn },
+      { href: "/check-out", labelKey: "nav.checkOut", icon: LogOut },
+      { href: "/stays", labelKey: "nav.stays", icon: ConciergeBell },
+      { href: "/reservations", labelKey: "nav.reservations", icon: CalendarDays },
       { href: "/calendar", labelKey: "nav.calendar", icon: CalendarDays },
       { href: "/guests", labelKey: "nav.guests", icon: Users },
-      { href: "/check-in", labelKey: "nav.checkIn", icon: LogIn },
-      { href: "/stays", labelKey: "nav.stays", icon: ConciergeBell },
-      { href: "/check-out", labelKey: "nav.checkOut", icon: LogOut },
+    ],
+  },
+  {
+    id: "rooms",
+    labelKey: "nav.groupRooms",
+    items: [
+      { href: "/rooms/operations", labelKey: "nav.roomOperations", icon: LayoutGrid },
+      { href: "/rooms", labelKey: "nav.rooms", icon: BedDouble },
+      { href: "/room-categories", labelKey: "nav.roomCategories", icon: Tags },
     ],
   },
   {
     id: "operations",
     labelKey: "nav.groupOperations",
     items: [
+      { href: "/housekeeping/operations", labelKey: "nav.housekeepingOps", icon: Sparkles },
+      { href: "/maintenance/operations", labelKey: "nav.maintenanceOps", icon: Wrench },
+      { href: "/operations/consumption", labelKey: "nav.consumption", icon: UtensilsCrossed },
       { href: "/housekeeping", labelKey: "nav.housekeeping", icon: Sparkles },
       { href: "/maintenance", labelKey: "nav.maintenance", icon: Wrench },
       { href: "/rates", labelKey: "nav.rates", icon: ClipboardCheck },

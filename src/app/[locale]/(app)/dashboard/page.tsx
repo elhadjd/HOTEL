@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { AppShell } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
@@ -51,7 +52,15 @@ export default async function DashboardPage({
         <div>
           <p className="font-ui max-w-2xl text-sm text-stone-500">{t("dashboard.subtitle")}</p>
         </div>
-        <Badge tone="accent">Phase 3 operations</Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/dashboard/front-desk"
+            className="font-ui text-sm text-teal-700 hover:underline"
+          >
+            Abrir Front Desk →
+          </Link>
+          <Badge tone="accent">Phase 8</Badge>
+        </div>
       </div>
 
       {dbUnavailable ? (
