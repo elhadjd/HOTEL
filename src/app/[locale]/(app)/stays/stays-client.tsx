@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 type StayRow = {
   id: string;
   status: string;
+  hotelId?: string;
+  roomId?: string;
   actualArrival: string;
   expectedDeparture: string;
   guest: { firstName: string; lastName: string };
@@ -14,12 +17,21 @@ type StayRow = {
   companions: Array<{ guest: { firstName: string; lastName: string } }>;
 };
 
+type RoomOption = {
+  id: string;
+  code: string;
+  hotelName: string;
+  occupancyStatus: string;
+};
+
 export function StaysClient({
   locale,
   initialStays,
+  rooms,
 }: {
   locale: string;
   initialStays: StayRow[];
+  rooms: RoomOption[];
 }) {
   const [stays, setStays] = useState(initialStays);
   const [selected, setSelected] = useState<string | null>(null);
@@ -28,6 +40,22 @@ export function StaysClient({
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  const selectedStay = useMemo(
+    () => stays.find((s) => s.id === selected) ?? null,
+    [stays, selected],
+  );
+
+  const roomOptions = useMemo(() => {
+    return rooms
+      .filter((r) => r.id !== selectedStay?.roomId)
+      .map((r) => ({
+        value: r.id,
+        label: `${r.code} · ${r.hotelName}`,
+        keywords: [r.code, r.hotelName, r.occupancyStatus, r.id],
+        description: r.occupancyStatus.replaceAll("_", " "),
+      }));
+  }, [rooms, selectedStay?.roomId]);
 
   function refresh() {
     startTransition(async () => {
@@ -66,47 +94,52 @@ export function StaysClient({
           Ocupação actual, acompanhantes e transferência de quarto.
         </p>
       </div>
-      {error ? <p className="text-sm text-terracotta-700">{error}</p> : null}
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
       {message ? <p className="text-sm text-teal-800">{message}</p> : null}
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] text-left text-sm">
-          <thead className="border-b border-stone-200 text-xs uppercase tracking-wide text-stone-500">
-            <tr>
-              <th className="py-2 pr-3">Reserva</th>
-              <th className="py-2 pr-3">Hóspede</th>
-              <th className="py-2 pr-3">Quarto</th>
-              <th className="py-2 pr-3">Saída prevista</th>
-              <th className="py-2 pr-3">Acomp.</th>
-              <th className="py-2">Estado</th>
-            </tr>
-          </thead>
-          <tbody>
-            {stays.map((s) => (
-              <tr
-                key={s.id}
-                className={`cursor-pointer border-b border-stone-100 ${selected === s.id ? "bg-teal-50/60" : ""}`}
-                onClick={() => setSelected(s.id)}
-              >
-                <td className="py-3 pr-3">{s.reservation.code}</td>
-                <td className="py-3 pr-3">
-                  {s.guest.firstName} {s.guest.lastName}
-                </td>
-                <td className="py-3 pr-3">{s.room.code}</td>
-                <td className="py-3 pr-3">{String(s.expectedDeparture).slice(0, 10)}</td>
-                <td className="py-3 pr-3">{s.companions.length}</td>
-                <td className="py-3">{s.status}</td>
-              </tr>
-            ))}
-            {stays.length === 0 ? (
+      <div className="surface overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="data-table min-w-[640px]">
+            <thead>
               <tr>
-                <td colSpan={6} className="py-8 text-center text-stone-500">
-                  Sem estadias activas.
-                </td>
+                <th>Reserva</th>
+                <th>Hóspede</th>
+                <th>Quarto</th>
+                <th>Saída prevista</th>
+                <th>Acomp.</th>
+                <th>Estado</th>
               </tr>
-            ) : null}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {stays.map((s) => (
+                <tr
+                  key={s.id}
+                  className={`cursor-pointer ${selected === s.id ? "bg-teal-50/60" : ""}`}
+                  onClick={() => {
+                    setSelected(s.id);
+                    setToRoomId("");
+                  }}
+                >
+                  <td>{s.reservation.code}</td>
+                  <td>
+                    {s.guest.firstName} {s.guest.lastName}
+                  </td>
+                  <td>{s.room.code}</td>
+                  <td>{String(s.expectedDeparture).slice(0, 10)}</td>
+                  <td>{s.companions.length}</td>
+                  <td>{s.status}</td>
+                </tr>
+              ))}
+              {stays.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-stone-500">
+                    Sem estadias activas.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {selected ? (
@@ -135,17 +168,23 @@ export function StaysClient({
             <h2 className="font-display text-xl text-ink-900">Transferir quarto</h2>
             <div className="grid gap-3 md:grid-cols-2">
               <label className="block text-sm">
-                ID do quarto destino
-                <input
-                  className="mt-1 w-full rounded-md border border-sand-200 bg-white px-3 py-2"
+                Quarto destino
+                <SearchableSelect
+                  className="mt-1"
+                  options={roomOptions}
                   value={toRoomId}
-                  onChange={(e) => setToRoomId(e.target.value)}
+                  onChange={setToRoomId}
+                  labels={{
+                    placeholder: "Pesquisar quarto…",
+                    searchPlaceholder: "Código, hotel, estado…",
+                    empty: "Sem quartos disponíveis",
+                  }}
                 />
               </label>
               <label className="block text-sm">
                 Motivo
                 <input
-                  className="mt-1 w-full rounded-md border border-sand-200 bg-white px-3 py-2"
+                  className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 py-2"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                 />
