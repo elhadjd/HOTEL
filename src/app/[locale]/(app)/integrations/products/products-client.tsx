@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 type Product = {
   id: number;
@@ -49,6 +50,20 @@ export function ProductsClient({
   const [newName, setNewName] = useState("");
   const [newPrice, setNewPrice] = useState("");
   const [newKind, setNewKind] = useState<"service" | "product">("service");
+
+  const productOptions = useMemo(
+    () =>
+      products.map((p) => ({
+        value: String(p.id),
+        label: p.name,
+        keywords: [String(p.id), p.code ?? "", p.kind ?? ""],
+        description:
+          p.sale_price != null
+            ? `#${p.id}${p.code ? ` · ${p.code}` : ""} · ${p.sale_price} AOA`
+            : `#${p.id}${p.code ? ` · ${p.code}` : ""}`,
+      })),
+    [products],
+  );
 
   function search(e: React.FormEvent) {
     e.preventDefault();
@@ -283,14 +298,19 @@ export function ProductsClient({
               placeholder="Etiqueta local"
               className="h-10 w-full rounded-md border border-sand-200 px-3"
             />
-            <input
+            <SearchableSelect
               required
+              options={productOptions}
               value={centralProductId}
-              onChange={(e) => setCentralProductId(e.target.value)}
-              placeholder="ID produto central"
-              className="h-10 w-full rounded-md border border-sand-200 px-3"
+              onChange={setCentralProductId}
+              labels={{
+                placeholder: "Produto central SIGESC",
+                searchPlaceholder: "Nome, código, ID…",
+                empty: "Pesquise o catálogo acima primeiro",
+              }}
+              clearable={false}
             />
-            <Button type="submit" disabled={pending} className="w-full">
+            <Button type="submit" disabled={pending || !centralProductId} className="w-full">
               Guardar mapeamento
             </Button>
           </div>

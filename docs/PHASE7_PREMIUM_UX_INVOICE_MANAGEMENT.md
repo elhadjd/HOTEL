@@ -47,6 +47,8 @@
 | Reservations room/guest | Native `<select>` | SearchableSelect |
 | Rooms category | Native `<select>` | SearchableSelect |
 | Stays → invoice | N/A | Prefill via query + searchable filters |
+| Stay room transfer | Free-text room UUID | SearchableSelect (code/hotel/status) |
+| Catalog mapping central product | Free-text product ID | SearchableSelect from catalog results |
 | Invoice type Cotação/Proforma | Native (2 options) | Kept native (tiny fixed list) |
 | Product kind filters | Native (tiny enum) | Kept native |
 
