@@ -10,5 +10,14 @@ export default getRequestConfig(async ({ requestLocale }) => {
   return {
     locale,
     messages: (await import(`../../messages/${locale}.json`)).default,
+    // Never crash the whole app on a missing translation key (mobile Application error)
+    onError(error) {
+      if (process.env.NODE_ENV !== "production") {
+        console.error(error);
+      }
+    },
+    getMessageFallback({ namespace, key }) {
+      return namespace ? `${namespace}.${key}` : key;
+    },
   };
 });
