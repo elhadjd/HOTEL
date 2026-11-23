@@ -464,7 +464,7 @@ async function createInstitution(prisma: Db, company: AggregateCompany) {
   });
 }
 
-async function upsertImportedUser(
+async function upsertImportedUserBatched(
   prisma: Db,
   institutionId: string,
   roles: Record<string, string>,
@@ -473,6 +473,8 @@ async function upsertImportedUser(
     isOfficialAdmin: boolean;
     temporaryPasswordHash?: string;
     temporaryPasswordExpiresAt?: Date;
+    userByEmail: Map<string, { id: string; email: string }>;
+    membershipByUserId: Map<string, { userId: string; roleId: string; status: string }>;
   },
 ) {
   const email = remote.email.trim().toLowerCase();
@@ -488,10 +490,12 @@ async function upsertImportedUser(
     ? roles.hotel_admin ?? roles.user!
     : roles[DEFAULT_AGGREGATE_IMPORT_ROLE] ?? roles.user!;
 
-  let user = await prisma.user.findUnique({ where: { email } });
-  if (user) {
+  const existing = options.userByEmail.get(email);
+
+  let user: { id: string };
+  if (existing) {
     user = await prisma.user.update({
-      where: { id: user.id },
+      where: { id: existing.id },
       data: {
         name: displayName,
         externalId,
@@ -508,11 +512,11 @@ async function upsertImportedUser(
               invitePending: true,
             }),
       },
+      select: { id: true },
     });
   } else {
     const passwordHash =
-      options.temporaryPasswordHash ??
-      (await hashPassword(generateOpaqueToken(24)));
+      options.temporaryPasswordHash ?? (await hashPassword(generateOpaqueToken(24)));
     user = await prisma.user.create({
       data: {
         email,
@@ -525,18 +529,19 @@ async function upsertImportedUser(
         temporaryPasswordExpiresAt: options.temporaryPasswordExpiresAt ?? null,
         active: true,
       },
+      select: { id: true },
     });
+    // Registra no Map para evitar duplicidade caso o mesmo email apareça em outra company
+    options.userByEmail.set(email, { id: user.id, email });
   }
 
-  const existingMembership = await prisma.membership.findUnique({
-    where: { institutionId_userId: { institutionId, userId: user.id } },
-  });
+  const existingMembership = options.membershipByUserId.get(user.id);
 
   const roleId = options.isOfficialAdmin
     ? importRoleId
     : existingMembership?.roleId ?? importRoleId;
 
-  await prisma.membership.upsert({
+  const membership = await prisma.membership.upsert({
     where: { institutionId_userId: { institutionId, userId: user.id } },
     create: {
       institutionId,
@@ -560,7 +565,9 @@ async function upsertImportedUser(
             : existingMembership?.status ?? "INVITED"
           : "SUSPENDED",
     },
+    select: { userId: true, roleId: true, status: true },
   });
+  options.membershipByUserId.set(user.id, membership);
 
   await prisma.syncMapping.upsert({
     where: {
