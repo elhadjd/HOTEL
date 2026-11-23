@@ -3,13 +3,14 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 export function CreateRoomForm({
   hotelId,
   categories,
 }: {
   hotelId: string;
-  categories: Array<{ id: string; name: string }>;
+  categories: Array<{ id: string; name: string; code?: string | null }>;
 }) {
   const router = useRouter();
   const [categoryId, setCategoryId] = useState(categories[0]?.id ?? "");
@@ -48,18 +49,19 @@ export function CreateRoomForm({
       <div className="font-ui mt-4 space-y-3 text-sm">
         <label className="block">
           <span className="text-stone-500">Categoria</span>
-          <select
+          <SearchableSelect
+            className="mt-1"
             required
+            options={categories.map((c) => ({
+              value: c.id,
+              label: c.name,
+              keywords: [c.code ?? "", c.name],
+            }))}
             value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
-            className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
-          >
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+            onChange={setCategoryId}
+            labels={{ placeholder: "Seleccionar categoria", searchPlaceholder: "Nome / código…" }}
+            clearable={false}
+          />
         </label>
         <label className="block">
           <span className="text-stone-500">Código</span>

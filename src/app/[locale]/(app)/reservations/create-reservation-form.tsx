@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 export function CreateReservationForm({
   hotelId,
@@ -11,7 +12,7 @@ export function CreateReservationForm({
 }: {
   hotelId: string;
   rooms: Array<{ id: string; code: string }>;
-  guests: Array<{ id: string; label: string }>;
+  guests: Array<{ id: string; label: string; email?: string | null; phone?: string | null }>;
 }) {
   const router = useRouter();
   const [arrivalDate, setArrivalDate] = useState("");
@@ -74,33 +75,31 @@ export function CreateReservationForm({
         </label>
         <label className="block">
           <span className="text-stone-500">Quarto</span>
-          <select
+          <SearchableSelect
+            className="mt-1"
+            options={rooms.map((r) => ({
+              value: r.id,
+              label: r.code,
+              keywords: [r.code],
+            }))}
             value={roomId}
-            onChange={(e) => setRoomId(e.target.value)}
-            className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
-          >
-            <option value="">Sem atribuição</option>
-            {rooms.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.code}
-              </option>
-            ))}
-          </select>
+            onChange={setRoomId}
+            labels={{ placeholder: "Sem atribuição", searchPlaceholder: "Código do quarto…" }}
+          />
         </label>
         <label className="block">
           <span className="text-stone-500">Hóspede principal</span>
-          <select
+          <SearchableSelect
+            className="mt-1"
+            options={guests.map((g) => ({
+              value: g.id,
+              label: g.label,
+              keywords: [g.email ?? "", g.phone ?? ""],
+            }))}
             value={guestId}
-            onChange={(e) => setGuestId(e.target.value)}
-            className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
-          >
-            <option value="">Opcional</option>
-            {guests.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.label}
-              </option>
-            ))}
-          </select>
+            onChange={setGuestId}
+            labels={{ placeholder: "Opcional", searchPlaceholder: "Nome, email, telefone…" }}
+          />
         </label>
         <label className="block">
           <span className="text-stone-500">Adultos</span>

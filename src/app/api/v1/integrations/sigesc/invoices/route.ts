@@ -5,6 +5,7 @@ import { requireTenant } from "@/server/api-auth";
 import {
   createInvoiceDraft,
   listInvoiceIntegrations,
+  summarizeInvoiceLines,
 } from "@/modules/sigesc-integration/invoices/invoice-service";
 import { mapAggregateError } from "@/modules/sigesc-integration/connection-context";
 
@@ -19,6 +20,8 @@ const lineSchema = z.object({
 
 const createSchema = z.object({
   reservationId: z.string().uuid().optional(),
+  stayId: z.string().uuid().optional(),
+  hotelId: z.string().uuid().optional(),
   guestId: z.string().uuid().optional(),
   state: z.string().min(1),
   notes: z.string().max(2000).optional(),
@@ -34,12 +37,50 @@ const createSchema = z.object({
     .optional(),
 });
 
-export async function GET() {
+export async function GET(request: Request) {
   const authz = await requireTenant("integrations.invoices");
   if (!authz.ok) return authz.response;
   try {
-    const invoices = await listInvoiceIntegrations(prisma, authz.ctx);
-    return NextResponse.json({ invoices });
+    const url = new URL(request.url);
+    const from = url.searchParams.get("from");
+    const to = url.searchParams.get("to");
+    const status = url.searchParams.get("status") || undefined;
+    const result = await listInvoiceIntegrations(prisma, authz.ctx, {
+      q: url.searchParams.get("q") ?? undefined,
+      state: url.searchParams.get("state") ?? undefined,
+      status: status as
+        | "DRAFT"
+        | "PENDING_SUBMISSION"
+        | "SUBMITTING"
+        | "CREATED"
+        | "RECONCILIATION_REQUIRED"
+        | "FAILED_VALIDATION"
+        | "FAILED_FINAL"
+        | undefined,
+      guestId: url.searchParams.get("guestId") ?? undefined,
+      stayId: url.searchParams.get("stayId") ?? undefined,
+      reservationId: url.searchParams.get("reservationId") ?? undefined,
+      hotelId: url.searchParams.get("hotelId") ?? undefined,
+      from: from ? new Date(from) : undefined,
+      to: to ? new Date(to) : undefined,
+      take: Number(url.searchParams.get("take") ?? 50) || 50,
+      skip: Number(url.searchParams.get("skip") ?? 0) || 0,
+    });
+
+    return NextResponse.json({
+      invoices: result.rows.map((inv) => ({
+        ...inv,
+        summary: summarizeInvoiceLines(inv.linesJson),
+        centralTotal: inv.centralTotal != null ? Number(inv.centralTotal) : null,
+        centralSubtotal: inv.centralSubtotal != null ? Number(inv.centralSubtotal) : null,
+        centralTax: inv.centralTax != null ? Number(inv.centralTax) : null,
+        centralRestPayable:
+          inv.centralRestPayable != null ? Number(inv.centralRestPayable) : null,
+      })),
+      total: result.total,
+      take: result.take,
+      skip: result.skip,
+    });
   } catch (err) {
     const mapped = mapAggregateError(err);
     return NextResponse.json({ error: mapped.message }, { status: mapped.status });
@@ -57,14 +98,18 @@ export async function POST(request: Request) {
   }
   const parsed = createSchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid invoice payload", details: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid invoice payload", details: parsed.error.flatten() },
+      { status: 400 },
+    );
   }
   try {
     const invoice = await createInvoiceDraft(prisma, authz.ctx, {
       ...parsed.data,
       lines: parsed.data.lines.map((l) => ({
         ...l,
-        centralProductId: l.centralProductId !== undefined ? String(l.centralProductId) : undefined,
+        centralProductId:
+          l.centralProductId !== undefined ? String(l.centralProductId) : undefined,
       })),
     });
     return NextResponse.json({ invoice }, { status: 201 });
