@@ -35,10 +35,15 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const q = url.searchParams.get("q") ?? undefined;
   const linkedOnly = url.searchParams.get("linkedOnly") === "1";
+  const takeRaw = url.searchParams.get("take");
+  const take = takeRaw ? Math.min(Math.max(Number(takeRaw) || 50, 1), 200) : undefined;
 
   try {
-    const guests = await listGuests(prisma, authz.ctx, { q, linkedOnly });
-    return NextResponse.json({ guests });
+    const guests = await listGuests(prisma, authz.ctx, { q, linkedOnly, take });
+    return NextResponse.json({
+      guests,
+      capped: guests.length >= (take ?? 100),
+    });
   } catch (err) {
     return jsonError(err);
   }

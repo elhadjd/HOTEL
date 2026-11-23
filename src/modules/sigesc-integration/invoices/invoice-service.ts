@@ -85,7 +85,12 @@ export function assertEditableCentralState(state: string | null | undefined): vo
   }
 }
 
-function normalizeDiscount(discount: number | undefined, unitPrice: number, quantity: number): number {
+/** Validates Aggregate line discounts: non-negative, ≤ qty × unit price, 2-decimal precision. */
+export function normalizeLineDiscount(
+  discount: number | undefined,
+  unitPrice: number,
+  quantity: number,
+): number {
   if (discount == null || Number.isNaN(discount)) return 0;
   if (discount < 0) throw new Error("Line discount cannot be negative");
   const max = Number((unitPrice * quantity).toFixed(2));
@@ -187,7 +192,7 @@ async function resolveLineItems(
       });
     }
 
-    const discount = normalizeDiscount(line.discount, verified.salePrice, line.quantity);
+    const discount = normalizeLineDiscount(line.discount, verified.salePrice, line.quantity);
 
     resolved.push({
       product_id: verified.productId,
@@ -206,6 +211,31 @@ async function resolveLineItems(
   return resolved;
 }
 
+function attemptTokenOf(attempt: { responseSummary: unknown }): string | null {
+  if (
+    attempt.responseSummary &&
+    typeof attempt.responseSummary === "object" &&
+    "token" in attempt.responseSummary
+  ) {
+    const token = (attempt.responseSummary as { token?: unknown }).token;
+    return typeof token === "string" && token.length > 0 ? token : null;
+  }
+  return null;
+}
+
+function hasTerminalOutcomeForToken(
+  attempts: Array<{ attemptNo: number; outcome: string; responseSummary: unknown }>,
+  token: string,
+  afterAttemptNo: number,
+): boolean {
+  return attempts.some(
+    (a) =>
+      a.attemptNo > afterAttemptNo &&
+      attemptTokenOf(a) === token &&
+      (a.outcome === "ADD_ITEMS_OK" || a.outcome === "ADD_ITEMS_FAILED"),
+  );
+}
+
 export async function listInvoiceIntegrations(
   prisma: PrismaClient,
   ctx: TenantContext,
@@ -214,6 +244,24 @@ export async function listInvoiceIntegrations(
   const take = Math.min(Math.max(filters.take ?? 50, 1), 200);
   const skip = Math.max(filters.skip ?? 0, 0);
   const q = filters.q?.trim();
+
+  let guestIdsMatchingQ: string[] = [];
+  if (q) {
+    const matchingGuests = await prisma.guest.findMany({
+      where: {
+        institutionId: ctx.institutionId,
+        OR: [
+          { firstName: { contains: q } },
+          { lastName: { contains: q } },
+          { email: { contains: q } },
+          { phone: { contains: q } },
+        ],
+      },
+      select: { id: true },
+      take: 200,
+    });
+    guestIdsMatchingQ = matchingGuests.map((g) => g.id);
+  }
 
   const where = {
     institutionId: ctx.institutionId,
@@ -240,6 +288,7 @@ export async function listInvoiceIntegrations(
             { centralCustomerId: { contains: q } },
             { notes: { contains: q } },
             { centralState: { contains: q } },
+            ...(guestIdsMatchingQ.length ? [{ guestId: { in: guestIdsMatchingQ } }] : []),
           ],
         }
       : {}),
@@ -738,16 +787,64 @@ export async function refreshInvoiceFromCentral(
 /**
  * Append lines to an existing central Cotação/Proforma.
  * Always re-fetches central status first — never trusts a stale local cache alone.
+ *
+ * Idempotency:
+ * - Pass a stable `idempotencyKey` from the client for retries.
+ * - If ADD_ITEMS_OK already exists for that token, Aggregate is not called again.
+ * - If ADD_ITEMS_PENDING exists without a terminal outcome for that token, we refresh
+ *   and refuse a blind retry (Aggregate POST /sales/{sale_key}/items has no documented
+ *   exact-once / request-id contract). Operator must verify central lines before a new key.
+ * - Concurrent appends with a different key while another PENDING is unresolved are blocked.
  */
 export async function addItemsToInvoice(
   prisma: PrismaClient,
   ctx: TenantContext,
   invoiceId: string,
   lines: InvoiceLineDraft[],
+  options?: { idempotencyKey?: string },
 ) {
+  const attemptToken =
+    options?.idempotencyKey?.trim() || `add-items-${randomUUID()}`;
+
   const invoice = await getInvoiceIntegration(prisma, ctx, invoiceId);
   if (invoice.status !== "CREATED" || !invoice.saleKey) {
     throw new Error("Items can only be added to a created Cotação/Proforma");
+  }
+
+  const priorOk = invoice.attempts.find(
+    (a) => a.outcome === "ADD_ITEMS_OK" && attemptTokenOf(a) === attemptToken,
+  );
+  if (priorOk) {
+    return refreshInvoiceFromCentral(prisma, ctx, invoiceId);
+  }
+
+  const unresolvedSameToken = [...invoice.attempts]
+    .reverse()
+    .find(
+      (a) =>
+        a.outcome === "ADD_ITEMS_PENDING" &&
+        attemptTokenOf(a) === attemptToken &&
+        !hasTerminalOutcomeForToken(invoice.attempts, attemptToken, a.attemptNo),
+    );
+  if (unresolvedSameToken) {
+    await refreshInvoiceFromCentral(prisma, ctx, invoiceId);
+    throw new Error(
+      "Append reconciliation required: a prior attempt with this idempotency key did not complete. Verify central items before retrying with a new key.",
+    );
+  }
+
+  const PENDING_WINDOW_MS = 120_000;
+  const unresolvedOther = [...invoice.attempts].reverse().find((a) => {
+    if (a.outcome !== "ADD_ITEMS_PENDING") return false;
+    const token = attemptTokenOf(a);
+    if (!token || token === attemptToken) return false;
+    if (hasTerminalOutcomeForToken(invoice.attempts, token, a.attemptNo)) return false;
+    return Date.now() - a.createdAt.getTime() < PENDING_WINDOW_MS;
+  });
+  if (unresolvedOther) {
+    throw new Error(
+      "Another append is in progress for this document. Retry shortly.",
+    );
   }
 
   // Verify live central status before mutation (stale local status cannot bypass)
@@ -760,11 +857,13 @@ export async function addItemsToInvoice(
   const lineItems = await resolveLineItems(prisma, ctx, resolved.companyId, lines);
   const client = getAggregateClient();
 
-  // Claim a local "adding items" attempt id to avoid duplicate append after ambiguity
-  const attemptToken = `add-items-${randomUUID()}`;
   await recordAttempt(prisma, invoiceId, {
     outcome: "ADD_ITEMS_PENDING",
-    responseSummary: { token: attemptToken, lines: lineItems, centralState: fresh.centralState },
+    responseSummary: {
+      token: attemptToken,
+      lines: lineItems,
+      centralState: fresh.centralState,
+    },
   });
 
   try {
@@ -821,9 +920,28 @@ export async function addItemsToInvoice(
     });
     return updated;
   } catch (err) {
+    const message = err instanceof Error ? err.message : "add items failed";
+    const isTimeout =
+      err instanceof AggregateApiError
+        ? err.status === 408 || /timeout|timed out|ETIMEDOUT|AbortError/i.test(message)
+        : /timeout|timed out|ETIMEDOUT|AbortError/i.test(message);
+
+    if (isTimeout) {
+      // Leave PENDING without FAILED — Aggregate may have applied the items.
+      // Retry with the same idempotency key will refresh and require reconciliation.
+      await prisma.invoiceIntegration.update({
+        where: { id: invoiceId },
+        data: {
+          status: "RECONCILIATION_REQUIRED",
+          lastError: "Append timed out — verify central items before retrying",
+        },
+      });
+      throw err;
+    }
+
     await recordAttempt(prisma, invoiceId, {
       outcome: "ADD_ITEMS_FAILED",
-      errorMessage: err instanceof Error ? err.message : "add items failed",
+      errorMessage: message,
       responseSummary: { token: attemptToken },
     });
     throw err;

@@ -29,6 +29,8 @@ export type SearchableSelectLabels = {
   clear?: string;
   loading?: string;
   error?: string;
+  /** Shown when result set hits the display/API cap */
+  refineSearch?: string;
 };
 
 function normalize(value: string): string {
@@ -48,6 +50,8 @@ function matchesQuery(option: SearchableOption, query: string): boolean {
   return haystack.some((h) => h.includes(q));
 }
 
+const RESULT_CAP = 200;
+
 export function SearchableSelect({
   options,
   value,
@@ -61,6 +65,8 @@ export function SearchableSelect({
   id,
   name,
   required,
+  onSearch,
+  searchDebounceMs = 250,
 }: {
   options: SearchableOption[];
   value: string;
@@ -74,27 +80,57 @@ export function SearchableSelect({
   id?: string;
   name?: string;
   required?: boolean;
+  /**
+   * When provided, search is delegated to the caller (server/async).
+   * Client-side filtering of `options` is skipped; results from `onSearch` are shown.
+   * Use this when catalogs can exceed the 200-result display cap.
+   */
+  onSearch?: (query: string) => Promise<SearchableOption[]>;
+  searchDebounceMs?: number;
 }) {
   const autoId = useId();
   const listboxId = `${autoId}-listbox`;
   const inputId = id ?? `${autoId}-input`;
   const rootRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const searchGen = useRef(0);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
+  const [asyncOptions, setAsyncOptions] = useState<SearchableOption[] | null>(null);
+  const [asyncLoading, setAsyncLoading] = useState(false);
+  const [asyncError, setAsyncError] = useState<string | null>(null);
   const deferredQuery = useDeferredValue(query);
+  const asyncMode = Boolean(onSearch);
 
-  const selected = useMemo(
+  const selectedFromProps = useMemo(
     () => options.find((o) => o.value === value) ?? null,
     [options, value],
   );
+  const selectedFromAsync = useMemo(
+    () => asyncOptions?.find((o) => o.value === value) ?? null,
+    [asyncOptions, value],
+  );
+  const selected = selectedFromProps ?? selectedFromAsync;
 
   const filtered = useMemo(() => {
+    if (asyncMode) {
+      const base = asyncOptions ?? options;
+      const withSelected =
+        selected && !base.some((o) => o.value === selected.value)
+          ? [selected, ...base]
+          : base;
+      return withSelected.slice(0, RESULT_CAP);
+    }
     const matched = options.filter((o) => matchesQuery(o, deferredQuery));
-    // Cap DOM nodes for very large catalogs while still filtering client-side
-    return matched.slice(0, 200);
-  }, [options, deferredQuery]);
+    return matched.slice(0, RESULT_CAP);
+  }, [asyncMode, asyncOptions, options, deferredQuery, selected]);
+
+  const hitCap =
+    asyncMode
+      ? (asyncOptions?.length ?? 0) >= RESULT_CAP ||
+        (!asyncOptions && options.length >= RESULT_CAP)
+      : options.filter((o) => matchesQuery(o, deferredQuery)).length > RESULT_CAP;
 
   useEffect(() => {
     if (!open) return;
@@ -114,6 +150,29 @@ export function SearchableSelect({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
+
+  useEffect(() => {
+    if (!asyncMode || !onSearch || !open) return;
+    const gen = ++searchGen.current;
+    setAsyncLoading(true);
+    setAsyncError(null);
+    const handle = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const next = await onSearch(deferredQuery);
+          if (searchGen.current !== gen) return;
+          setAsyncOptions(next.slice(0, RESULT_CAP));
+        } catch (err) {
+          if (searchGen.current !== gen) return;
+          setAsyncError(err instanceof Error ? err.message : "Falha na pesquisa");
+          setAsyncOptions([]);
+        } finally {
+          if (searchGen.current === gen) setAsyncLoading(false);
+        }
+      })();
+    }, searchDebounceMs);
+    return () => window.clearTimeout(handle);
+  }, [asyncMode, onSearch, open, deferredQuery, searchDebounceMs]);
 
   function selectValue(next: string) {
     onChange(next);
@@ -155,6 +214,8 @@ export function SearchableSelect({
 
   const placeholder = labels?.placeholder ?? "Seleccionar…";
   const searchPlaceholder = labels?.searchPlaceholder ?? "Pesquisar…";
+  const showLoading = loading || asyncLoading;
+  const showError = error ?? asyncError;
 
   return (
     <div ref={rootRef} className={cn("font-ui relative", className)}>
@@ -172,7 +233,7 @@ export function SearchableSelect({
           "flex h-10 w-full items-center gap-2 rounded-md border bg-white px-3 text-left text-sm outline-none transition",
           "border-sand-200 ring-teal-500/30 focus-visible:ring-2",
           disabled || loading ? "cursor-not-allowed opacity-60" : "hover:border-sand-200/80",
-          error ? "border-danger" : null,
+          showError ? "border-danger" : null,
         )}
       >
         <span className={cn("min-w-0 flex-1 truncate", selected ? "text-ink-900" : "text-stone-400")}>
@@ -214,6 +275,9 @@ export function SearchableSelect({
                 aria-autocomplete="list"
                 aria-controls={listboxId}
               />
+              {asyncLoading ? (
+                <Loader2 className="absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-stone-400" />
+              ) : null}
             </label>
           </div>
           <ul
@@ -222,11 +286,15 @@ export function SearchableSelect({
             aria-labelledby={inputId}
             className="max-h-60 overflow-y-auto py-1"
           >
-            {error ? (
+            {showError ? (
               <li className="px-3 py-6 text-center text-sm text-danger">
-                {labels?.error ?? error}
+                {labels?.error ?? showError}
               </li>
-            ) : options.length === 0 ? (
+            ) : showLoading && filtered.length === 0 ? (
+              <li className="px-3 py-6 text-center text-sm text-stone-500">
+                {labels?.loading ?? "A carregar…"}
+              </li>
+            ) : (asyncMode ? (asyncOptions ?? options) : options).length === 0 ? (
               <li className="px-3 py-6 text-center text-sm text-stone-500">
                 {labels?.empty ?? "Sem opções"}
               </li>
@@ -239,7 +307,7 @@ export function SearchableSelect({
                 const active = opt.value === value;
                 const highlighted = index === highlight;
                 return (
-                  <li key={opt.value} role="option" aria-selected={active}>
+                  <li key={`${opt.value}-${index}`} role="option" aria-selected={active}>
                     <button
                       type="button"
                       disabled={opt.disabled}
@@ -273,14 +341,15 @@ export function SearchableSelect({
               })
             )}
           </ul>
-          {filtered.length >= 200 ? (
+          {hitCap ? (
             <p className="border-t border-sand-100 px-3 py-2 text-[11px] text-stone-400">
-              A mostrar os primeiros 200 resultados — refine a pesquisa.
+              {labels?.refineSearch ??
+                "A mostrar no máximo 200 resultados — refine a pesquisa para localizar o restante."}
             </p>
           ) : null}
         </div>
       ) : null}
-      {error ? <p className="mt-1 text-xs text-danger">{error}</p> : null}
+      {showError ? <p className="mt-1 text-xs text-danger">{showError}</p> : null}
     </div>
   );
 }

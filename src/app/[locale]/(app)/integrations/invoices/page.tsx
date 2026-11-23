@@ -25,8 +25,8 @@ export default async function CentralInvoicesPage({
   const ctx = await requirePageTenant("integrations.invoices");
 
   const [invoicePage, guests, reservations, stays, hotels, mappings] = await Promise.all([
-    listInvoiceIntegrations(prisma, ctx, { take: 100 }),
-    listGuests(prisma, ctx, { take: 200 }),
+    listInvoiceIntegrations(prisma, ctx, { take: 20, skip: 0 }),
+    listGuests(prisma, ctx, { take: 50 }),
     prisma.reservation.findMany({
       where: { institutionId: ctx.institutionId },
       orderBy: { createdAt: "desc" },
@@ -48,7 +48,7 @@ export default async function CentralInvoicesPage({
       orderBy: { name: "asc" },
       select: { id: true, name: true, code: true },
     }),
-    listCatalogMappings(prisma, ctx),
+    listCatalogMappings(prisma, ctx, { activeOnly: true, take: 50 }),
   ]);
 
   const guestById = new Map(
@@ -67,6 +67,8 @@ export default async function CentralInvoicesPage({
       </div>
       <InvoicesClient
         total={invoicePage.total}
+        take={invoicePage.take}
+        skip={invoicePage.skip}
         prefill={prefill}
         invoices={invoicePage.rows.map((inv) => ({
           id: inv.id,

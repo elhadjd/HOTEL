@@ -69,7 +69,7 @@
 ## Known limitations / deferred
 - Live Aggregate staging not exercised in this run (mock + unit only)
 - Quantity edit / line removal on existing central documents not exposed (append-only via Aggregate items endpoint)
-- Full pagination UI uses client-side filter over first page (API supports take/skip)
+- ~~Full pagination UI uses client-side filter over first page~~ → fixed in Phase 7.1 (`docs/PHASE7_1_FINAL_HARDENING.md`)
 - Not every tiny enum `<select>` replaced (by design)
 - Charts/export for reports deferred (no fake metrics)
 

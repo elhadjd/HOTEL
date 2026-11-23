@@ -62,10 +62,35 @@ export async function GET(request: Request) {
       reservationId: url.searchParams.get("reservationId") ?? undefined,
       hotelId: url.searchParams.get("hotelId") ?? undefined,
       from: from ? new Date(from) : undefined,
-      to: to ? new Date(to) : undefined,
+      to: to
+        ? new Date(to.includes("T") ? to : `${to}T23:59:59.999`)
+        : undefined,
       take: Number(url.searchParams.get("take") ?? 50) || 50,
       skip: Number(url.searchParams.get("skip") ?? 0) || 0,
     });
+
+    const guestIds = [
+      ...new Set(result.rows.map((r) => r.guestId).filter((id): id is string => Boolean(id))),
+    ];
+    const hotelIds = [
+      ...new Set(result.rows.map((r) => r.hotelId).filter((id): id is string => Boolean(id))),
+    ];
+    const [guests, hotels] = await Promise.all([
+      guestIds.length
+        ? prisma.guest.findMany({
+            where: { institutionId: authz.ctx.institutionId, id: { in: guestIds } },
+            select: { id: true, firstName: true, lastName: true },
+          })
+        : Promise.resolve([]),
+      hotelIds.length
+        ? prisma.hotel.findMany({
+            where: { institutionId: authz.ctx.institutionId, id: { in: hotelIds } },
+            select: { id: true, name: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const guestById = new Map(guests.map((g) => [g.id, `${g.firstName} ${g.lastName}`] as const));
+    const hotelById = new Map(hotels.map((h) => [h.id, h.name] as const));
 
     return NextResponse.json({
       invoices: result.rows.map((inv) => ({
@@ -76,6 +101,8 @@ export async function GET(request: Request) {
         centralTax: inv.centralTax != null ? Number(inv.centralTax) : null,
         centralRestPayable:
           inv.centralRestPayable != null ? Number(inv.centralRestPayable) : null,
+        guestLabel: inv.guestId ? guestById.get(inv.guestId) ?? null : null,
+        hotelLabel: inv.hotelId ? hotelById.get(inv.hotelId) ?? null : null,
       })),
       total: result.total,
       take: result.take,

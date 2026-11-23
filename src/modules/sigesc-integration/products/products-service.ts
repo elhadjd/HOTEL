@@ -139,10 +139,31 @@ export async function updateCentralProduct(
   return result;
 }
 
-export async function listCatalogMappings(prisma: PrismaClient, ctx: TenantContext) {
+export async function listCatalogMappings(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+  query?: { q?: string; take?: number; activeOnly?: boolean },
+) {
+  const q = query?.q?.trim();
+  const take =
+    query?.take != null ? Math.min(Math.max(query.take, 1), 200) : undefined;
   return prisma.productCatalogMapping.findMany({
-    where: { institutionId: ctx.institutionId },
+    where: {
+      institutionId: ctx.institutionId,
+      ...(query?.activeOnly ? { active: true } : {}),
+      ...(q
+        ? {
+            OR: [
+              { localCode: { contains: q } },
+              { localLabel: { contains: q } },
+              { centralName: { contains: q } },
+              { centralProductId: { contains: q } },
+            ],
+          }
+        : {}),
+    },
     orderBy: { localCode: "asc" },
+    ...(take != null ? { take } : {}),
   });
 }
 

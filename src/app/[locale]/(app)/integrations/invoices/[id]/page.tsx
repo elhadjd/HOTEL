@@ -25,7 +25,7 @@ export default async function InvoiceDetailPage({
   }
 
   const [mappings, guest, hotel] = await Promise.all([
-    listCatalogMappings(prisma, ctx),
+    listCatalogMappings(prisma, ctx, { activeOnly: true, take: 50 }),
     invoice.guestId
       ? prisma.guest.findFirst({
           where: { id: invoice.guestId, institutionId: ctx.institutionId },
