@@ -36,8 +36,13 @@ function safeCallbackPath(raw: string | null): string | null {
 export default async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Let API / static pass without intl rewrite complications for auth checks
-  if (pathname.startsWith("/api") || pathname.startsWith("/_next")) {
+  // Let API / static / public files (css, ico, txt, …) bypass intl/auth.
+  // Without this, `/hotelaria-app.css` or `/robots.txt` can match `[locale]`.
+  if (
+    pathname.startsWith("/api") ||
+    pathname.startsWith("/_next") ||
+    /\.[a-zA-Z0-9]+$/.test(pathname)
+  ) {
     return NextResponse.next();
   }
 
