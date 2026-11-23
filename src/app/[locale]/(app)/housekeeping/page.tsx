@@ -14,10 +14,10 @@ export default async function HousekeepingPage({
   setRequestLocale(locale);
   const t = await getTranslations();
   const ctx = await requirePageTenant("housekeeping.read");
-  const tasks = await listHousekeepingTasks(prisma, ctx);
+  const listed = await listHousekeepingTasks(prisma, ctx);
   return (
     <AppShell title={t("nav.housekeeping")}>
-      <HousekeepingClient initialTasks={JSON.parse(JSON.stringify(tasks))} />
+      <HousekeepingClient initialTasks={JSON.parse(JSON.stringify(listed.tasks))} />
     </AppShell>
   );
 }

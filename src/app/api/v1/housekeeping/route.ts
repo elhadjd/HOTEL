@@ -12,12 +12,15 @@ export async function GET(request: Request) {
   if (!authz.ok) return authz.response;
   const url = new URL(request.url);
   try {
-    const tasks = await listHousekeepingTasks(prisma, authz.ctx, {
+    const result = await listHousekeepingTasks(prisma, authz.ctx, {
       hotelId: url.searchParams.get("hotelId") ?? undefined,
       roomId: url.searchParams.get("roomId") ?? undefined,
       status: (url.searchParams.get("status") as never) ?? undefined,
+      assignedTo: url.searchParams.get("assignedTo") ?? undefined,
+      floor: url.searchParams.get("floor") ?? undefined,
+      overdueOnly: url.searchParams.get("overdueOnly") === "1",
     });
-    return NextResponse.json({ tasks });
+    return NextResponse.json(result);
   } catch (err) {
     return jsonError(err);
   }

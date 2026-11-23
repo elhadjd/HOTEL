@@ -14,10 +14,10 @@ export default async function MaintenancePage({
   setRequestLocale(locale);
   const t = await getTranslations();
   const ctx = await requirePageTenant("maintenance.read");
-  const requests = await listMaintenanceRequests(prisma, ctx);
+  const listed = await listMaintenanceRequests(prisma, ctx);
   return (
     <AppShell title={t("nav.maintenance")}>
-      <MaintenanceClient initialRequests={JSON.parse(JSON.stringify(requests))} />
+      <MaintenanceClient initialRequests={JSON.parse(JSON.stringify(listed.requests))} />
     </AppShell>
   );
 }

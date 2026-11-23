@@ -16,22 +16,69 @@ async function assertHotel(prisma: PrismaClient, ctx: TenantContext, hotelId: st
 export async function listHousekeepingTasks(
   prisma: PrismaClient,
   ctx: TenantContext,
-  filters?: { hotelId?: string; status?: HousekeepingTaskStatus; roomId?: string },
+  filters?: {
+    hotelId?: string;
+    status?: HousekeepingTaskStatus;
+    roomId?: string;
+    assignedTo?: string;
+    floor?: string;
+    overdueOnly?: boolean;
+    take?: number;
+    skip?: number;
+  },
 ) {
-  return prisma.housekeepingTask.findMany({
-    where: {
-      hotel: { institutionId: ctx.institutionId },
-      ...(filters?.hotelId ? { hotelId: filters.hotelId } : {}),
-      ...(filters?.status ? { status: filters.status } : {}),
-      ...(filters?.roomId ? { roomId: filters.roomId } : {}),
-    },
-    include: {
-      room: { select: { id: true, code: true, housekeepingStatus: true, occupancyStatus: true } },
-      hotel: { select: { id: true, name: true, code: true } },
-    },
-    orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
-    take: 200,
-  });
+  const take = Math.min(Math.max(filters?.take ?? 100, 1), 300);
+  const skip = Math.max(filters?.skip ?? 0, 0);
+  const openStatuses: HousekeepingTaskStatus[] = [
+    "PENDING",
+    "ASSIGNED",
+    "IN_PROGRESS",
+    "INSPECTION_REQUIRED",
+    "REJECTED",
+  ];
+  const where = {
+    hotel: { institutionId: ctx.institutionId },
+    ...(filters?.hotelId ? { hotelId: filters.hotelId } : {}),
+    ...(filters?.status ? { status: filters.status } : {}),
+    ...(filters?.roomId ? { roomId: filters.roomId } : {}),
+    ...(filters?.assignedTo
+      ? { assignedTo: { contains: filters.assignedTo.trim() } }
+      : {}),
+    ...(filters?.floor
+      ? { room: { floor: filters.floor.trim() } }
+      : {}),
+    ...(filters?.overdueOnly
+      ? {
+          deadlineAt: { lt: new Date() },
+          status: { in: openStatuses },
+        }
+      : {}),
+  };
+
+  const [tasks, total] = await Promise.all([
+    prisma.housekeepingTask.findMany({
+      where,
+      include: {
+        room: {
+          select: {
+            id: true,
+            code: true,
+            floor: true,
+            housekeepingStatus: true,
+            occupancyStatus: true,
+            maintenanceStatus: true,
+          },
+        },
+        hotel: { select: { id: true, name: true, code: true } },
+      },
+      orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
+      take,
+      skip,
+    }),
+    prisma.housekeepingTask.count({ where }),
+  ]);
+
+  return { tasks, total, take, skip };
 }
 
 export async function createHousekeepingTask(
@@ -45,6 +92,7 @@ export async function createHousekeepingTask(
     notes?: string;
     deadlineAt?: Date | string;
     assignedTo?: string;
+    stayId?: string;
   },
 ) {
   await assertHotel(prisma, ctx, input.hotelId);
@@ -55,6 +103,7 @@ export async function createHousekeepingTask(
     data: {
       hotelId: input.hotelId,
       roomId: input.roomId,
+      stayId: input.stayId ?? null,
       kind: input.kind ?? "CLEANING",
       status: input.assignedTo ? "ASSIGNED" : "PENDING",
       priority: input.priority ?? "NORMAL",
@@ -120,6 +169,11 @@ export async function startHousekeepingTask(
   });
 }
 
+/**
+ * Complete cleaning. When requireInspection is true (default), room stays DIRTY/INSPECTING
+ * until inspection approval. When false, room becomes CLEAN immediately.
+ * Never marks a dirty room as ready without one of these paths.
+ */
 export async function completeHousekeepingTask(
   prisma: PrismaClient,
   ctx: TenantContext,
@@ -130,12 +184,41 @@ export async function completeHousekeepingTask(
   if (task.status !== "IN_PROGRESS" && task.status !== "ASSIGNED") {
     throw new Error(`Cannot complete task in status ${task.status}`);
   }
-  return prisma.housekeepingTask.update({
-    where: { id: taskId },
-    data: {
-      status: requireInspection ? "INSPECTION_REQUIRED" : "COMPLETED",
-      completedAt: new Date(),
-    },
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.housekeepingTask.update({
+      where: { id: taskId },
+      data: {
+        status: requireInspection ? "INSPECTION_REQUIRED" : "COMPLETED",
+        completedAt: new Date(),
+      },
+    });
+
+    if (requireInspection) {
+      await tx.room.update({
+        where: { id: task.roomId },
+        data: { housekeepingStatus: "INSPECTING" },
+      });
+    } else {
+      // Completion without inspection is an explicit policy choice — set CLEAN
+      await tx.room.update({
+        where: { id: task.roomId },
+        data: { housekeepingStatus: "CLEAN" },
+      });
+    }
+
+    await tx.auditLog.create({
+      data: {
+        institutionId: ctx.institutionId,
+        actorUserId: ctx.userId,
+        action: "UPDATE",
+        entityType: "HousekeepingComplete",
+        entityId: taskId,
+        metadata: { requireInspection },
+      },
+    });
+
+    return updated;
   });
 }
 
@@ -151,14 +234,35 @@ export async function inspectHousekeepingTask(
   }
 
   if (!input.approved) {
-    return prisma.housekeepingTask.update({
-      where: { id: taskId },
-      data: {
-        status: "REJECTED",
-        inspectionResult: "REJECTED",
-        inspectionNotes: input.notes?.trim() || null,
-        inspectedAt: new Date(),
-      },
+    const reason = input.notes?.trim();
+    if (!reason) {
+      throw new Error("Rejection reason is required");
+    }
+    return prisma.$transaction(async (tx) => {
+      const updated = await tx.housekeepingTask.update({
+        where: { id: taskId },
+        data: {
+          status: "REJECTED",
+          inspectionResult: "REJECTED",
+          inspectionNotes: reason,
+          inspectedAt: new Date(),
+        },
+      });
+      await tx.room.update({
+        where: { id: task.roomId },
+        data: { housekeepingStatus: "DIRTY" },
+      });
+      await tx.auditLog.create({
+        data: {
+          institutionId: ctx.institutionId,
+          actorUserId: ctx.userId,
+          action: "UPDATE",
+          entityType: "HousekeepingInspect",
+          entityId: taskId,
+          metadata: { approved: false },
+        },
+      });
+      return updated;
     });
   }
 
@@ -173,7 +277,6 @@ export async function inspectHousekeepingTask(
         completedAt: task.completedAt ?? new Date(),
       },
     });
-    // Room becomes CLEAN only after approved inspection (or completion without inspection)
     await tx.room.update({
       where: { id: task.roomId },
       data: { housekeepingStatus: "CLEAN" },
@@ -186,6 +289,49 @@ export async function inspectHousekeepingTask(
         entityType: "HousekeepingInspect",
         entityId: taskId,
         metadata: { approved: true },
+      },
+    });
+    return updated;
+  });
+}
+
+/** Reopen a completed/rejected/cancelled task for another cleaning cycle. */
+export async function reopenHousekeepingTask(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+  taskId: string,
+  notes?: string,
+) {
+  const task = await getOwnedTask(prisma, ctx, taskId);
+  if (!["COMPLETED", "REJECTED", "CANCELLED", "INSPECTION_REQUIRED"].includes(task.status)) {
+    throw new Error(`Cannot reopen task in status ${task.status}`);
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.housekeepingTask.update({
+      where: { id: taskId },
+      data: {
+        status: task.assignedTo ? "ASSIGNED" : "PENDING",
+        completedAt: null,
+        inspectedAt: null,
+        inspectionResult: null,
+        inspectionNotes: notes?.trim() || task.inspectionNotes,
+        notes: notes?.trim()
+          ? `${task.notes ? `${task.notes}\n` : ""}Reopen: ${notes.trim()}`
+          : task.notes,
+      },
+    });
+    await tx.room.update({
+      where: { id: task.roomId },
+      data: { housekeepingStatus: "DIRTY" },
+    });
+    await tx.auditLog.create({
+      data: {
+        institutionId: ctx.institutionId,
+        actorUserId: ctx.userId,
+        action: "UPDATE",
+        entityType: "HousekeepingReopen",
+        entityId: taskId,
       },
     });
     return updated;
@@ -210,4 +356,66 @@ export async function isRoomReadyForGuest(prisma: PrismaClient, roomId: string) 
   if (room.housekeepingStatus !== "CLEAN") return false;
   if (room.maintenanceStatus !== "OK") return false;
   return true;
+}
+
+export async function housekeepingProductivity(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+  hotelId?: string,
+) {
+  const since = new Date();
+  since.setUTCDate(since.getUTCDate() - 7);
+  const tasks = await prisma.housekeepingTask.findMany({
+    where: {
+      hotel: { institutionId: ctx.institutionId },
+      ...(hotelId ? { hotelId } : {}),
+      createdAt: { gte: since },
+    },
+    select: {
+      status: true,
+      assignedTo: true,
+      startedAt: true,
+      completedAt: true,
+      deadlineAt: true,
+    },
+    take: 2000,
+  });
+
+  const byAssignee = new Map<
+    string,
+    { completed: number; pending: number; avgMinutes: number; durations: number[] }
+  >();
+  for (const t of tasks) {
+    const key = t.assignedTo?.trim() || "(unassigned)";
+    const row = byAssignee.get(key) ?? {
+      completed: 0,
+      pending: 0,
+      avgMinutes: 0,
+      durations: [],
+    };
+    if (t.status === "COMPLETED") {
+      row.completed += 1;
+      if (t.startedAt && t.completedAt) {
+        row.durations.push((t.completedAt.getTime() - t.startedAt.getTime()) / 60_000);
+      }
+    } else if (
+      ["PENDING", "ASSIGNED", "IN_PROGRESS", "INSPECTION_REQUIRED", "REJECTED"].includes(t.status)
+    ) {
+      row.pending += 1;
+    }
+    byAssignee.set(key, row);
+  }
+
+  return {
+    windowDays: 7,
+    assignees: [...byAssignee.entries()].map(([name, v]) => ({
+      assignedTo: name,
+      completed: v.completed,
+      pending: v.pending,
+      averageMinutes:
+        v.durations.length === 0
+          ? 0
+          : Math.round(v.durations.reduce((a, b) => a + b, 0) / v.durations.length),
+    })),
+  };
 }

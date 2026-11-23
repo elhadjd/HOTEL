@@ -19,7 +19,7 @@ export default async function HousekeepingOperationsPage({
   setRequestLocale(locale);
   const ctx = await requirePageTenant("housekeeping.read");
 
-  const [hotels, tasks] = await Promise.all([
+  const [hotels, listed] = await Promise.all([
     listHotels(prisma, ctx),
     listHousekeepingTasks(prisma, ctx, {
       hotelId: query.hotelId,
@@ -30,10 +30,10 @@ export default async function HousekeepingOperationsPage({
   return (
     <AppShell title="Governança — operações">
       <div className="mb-4 flex justify-end">
-        <Badge tone="accent">Phase 8</Badge>
+        <Badge tone="accent">Phase 8.1</Badge>
       </div>
       <HousekeepingOpsClient
-        initialTasks={JSON.parse(JSON.stringify(tasks))}
+        initialTasks={JSON.parse(JSON.stringify(listed.tasks))}
         hotels={hotels.map((h) => ({ value: h.id, label: h.name }))}
         focusTaskId={query.taskId}
       />

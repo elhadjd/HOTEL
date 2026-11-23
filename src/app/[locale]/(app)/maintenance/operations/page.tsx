@@ -19,7 +19,7 @@ export default async function MaintenanceOperationsPage({
   setRequestLocale(locale);
   const ctx = await requirePageTenant("maintenance.read");
 
-  const [hotels, requests] = await Promise.all([
+  const [hotels, listed] = await Promise.all([
     listHotels(prisma, ctx),
     listMaintenanceRequests(prisma, ctx, {
       hotelId: query.hotelId,
@@ -30,10 +30,10 @@ export default async function MaintenanceOperationsPage({
   return (
     <AppShell title="Manutenção — operações">
       <div className="mb-4 flex justify-end">
-        <Badge tone="accent">Phase 8</Badge>
+        <Badge tone="accent">Phase 8.1</Badge>
       </div>
       <MaintenanceOpsClient
-        initialRequests={JSON.parse(JSON.stringify(requests))}
+        initialRequests={JSON.parse(JSON.stringify(listed.requests))}
         hotels={hotels.map((h) => ({ value: h.id, label: h.name }))}
         focusRequestId={query.requestId}
       />
