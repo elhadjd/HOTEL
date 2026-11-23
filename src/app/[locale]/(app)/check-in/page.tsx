@@ -7,10 +7,13 @@ import { CheckInClient } from "./check-in-client";
 
 export default async function CheckInPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string }>;
+  searchParams: Promise<{ reservationId?: string }>;
 }) {
   const { locale } = await params;
+  const query = await searchParams;
   setRequestLocale(locale);
   const t = await getTranslations();
   const ctx = await requirePageTenant("stays.checkin");
@@ -21,7 +24,11 @@ export default async function CheckInPage({
 
   return (
     <AppShell title={t("nav.checkIn")}>
-      <CheckInClient locale={locale} initialArrivals={serialized} />
+      <CheckInClient
+        locale={locale}
+        initialArrivals={serialized}
+        focusReservationId={query.reservationId}
+      />
     </AppShell>
   );
 }

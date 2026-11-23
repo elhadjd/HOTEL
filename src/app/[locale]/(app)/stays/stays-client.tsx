@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -97,6 +98,16 @@ export function StaysClient({
       {error ? <p className="text-sm text-danger">{error}</p> : null}
       {message ? <p className="text-sm text-teal-800">{message}</p> : null}
 
+      <p className="font-ui text-sm text-stone-500">
+        <Link href="/dashboard/front-desk" className="text-teal-700 hover:underline">
+          Front Desk
+        </Link>
+        {" · "}
+        <Link href="/operations/consumption" className="text-teal-700 hover:underline">
+          Consumo operacional
+        </Link>
+      </p>
+
       <div className="surface overflow-hidden">
         <div className="overflow-x-auto">
           <table className="data-table min-w-[640px]">
@@ -108,6 +119,7 @@ export function StaysClient({
                 <th>Saída prevista</th>
                 <th>Acomp.</th>
                 <th>Estado</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -128,11 +140,20 @@ export function StaysClient({
                   <td>{String(s.expectedDeparture).slice(0, 10)}</td>
                   <td>{s.companions.length}</td>
                   <td>{s.status}</td>
+                  <td>
+                    <Link
+                      href={`/stays/${s.id}`}
+                      className="text-teal-700 hover:underline"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      Abrir
+                    </Link>
+                  </td>
                 </tr>
               ))}
               {stays.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-stone-500">
+                  <td colSpan={7} className="py-8 text-center text-stone-500">
                     Sem estadias activas.
                   </td>
                 </tr>
