@@ -190,17 +190,142 @@ export async function confirmOnboardingChallenge(
   const encryptedApiKey = encryptAggregateKey(rawKey);
   const keyPrefix = keyPrefixFromRaw(rawKey);
 
-  const result = await prisma.$transaction(async (tx) => {
-    const existingInstitution = await tx.institution.findFirst({
-      where: { sigescCompanyRef: externalId },
-    });
+  // Flatten all users ONCE (outside transaction) to avoid nested loops inside it.
+  const allRemoteUsers = onboarding.companies.flatMap((c) => c.users ?? []);
+  const allEmails = Array.from(
+    new Set(allRemoteUsers.map((u) => u.email.trim().toLowerCase())),
+  );
 
-    if (existingInstitution) {
-      // Idempotent reconnect: refresh connection, do not re-email temp password automatically
-      const connection = await tx.aggregateConnection.upsert({
-        where: { institutionId: existingInstitution.id },
-        create: {
+  const result = await prisma.$transaction(
+    async (tx) => {
+      const existingInstitution = await tx.institution.findFirst({
+        where: { sigescCompanyRef: externalId },
+      });
+
+      if (existingInstitution) {
+        // Idempotent reconnect: refresh connection, do not re-email temp password automatically
+        const connection = await tx.aggregateConnection.upsert({
+          where: { institutionId: existingInstitution.id },
+          create: {
+            institutionId: existingInstitution.id,
+            host,
+            encryptedApiKey,
+            keyPrefix,
+            keyName: onboarding.key.name,
+            scopesJson: onboarding.key.scopes,
+            status: "ACTIVE",
+            ownerCompanyExternalId: String(onboarding.key.owner_company_id),
+            lastOnboardingAt: new Date(),
+          },
+          update: {
+            host,
+            encryptedApiKey,
+            keyPrefix,
+            keyName: onboarding.key.name,
+            scopesJson: onboarding.key.scopes,
+            status: "ACTIVE",
+            ownerCompanyExternalId: String(onboarding.key.owner_company_id),
+            lastOnboardingAt: new Date(),
+            lastError: null,
+          },
+        });
+
+        await tx.onboardingChallenge.update({
+          where: { id: challenge.id },
+          data: { consumedAt: new Date(), institutionId: existingInstitution.id },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            institutionId: existingInstitution.id,
+            action: "UPDATE",
+            entityType: "AggregateConnection",
+            entityId: connection.id,
+            metadata: { event: "aggregate.reconnected", keyPrefix, idempotent: true },
+          },
+        });
+
+        return {
           institutionId: existingInstitution.id,
+          connectionId: connection.id,
+          administratorEmail: adminEmail,
+          administratorName:
+            admin.full_name?.trim() ||
+            [admin.name, admin.surname].filter(Boolean).join(" ").trim() ||
+            adminEmail,
+          usersUpserted: 0,
+          keyPrefix,
+          emailQueued: false,
+          alreadyExisted: true,
+        } satisfies ConfirmOnboardingResult;
+      }
+
+      const institution = await createInstitution(tx, company);
+      const roles = await ensureInstitutionRoles(tx as unknown as PrismaClient, institution.id);
+
+      // ---- BATCH PRELOAD: elimina findUnique por usuário dentro do loop ----
+      const existingUsers = allEmails.length
+        ? await tx.user.findMany({
+            where: { email: { in: allEmails } },
+            select: { id: true, email: true },
+          })
+        : [];
+      const userByEmail = new Map(existingUsers.map((u) => [u.email, u]));
+
+      const existingMemberships = await tx.membership.findMany({
+        where: { institutionId: institution.id },
+        select: { userId: true, roleId: true, status: true },
+      });
+      const membershipByUserId = new Map(
+        existingMemberships.map((m) => [m.userId, m]),
+      );
+
+      let usersUpserted = 0;
+      let adminUserId: string | null = null;
+
+      for (const user of allRemoteUsers) {
+        const isAdmin =
+          (user.external_id || String(user.id)) === (admin.external_id || String(admin.id)) ||
+          user.email.trim().toLowerCase() === adminEmail;
+
+        const created = await upsertImportedUserBatched(tx, institution.id, roles, user, {
+          isOfficialAdmin: isAdmin,
+          temporaryPasswordHash: isAdmin ? temporaryHash : undefined,
+          temporaryPasswordExpiresAt: isAdmin ? tempExpires : undefined,
+          userByEmail,
+          membershipByUserId,
+        });
+
+        usersUpserted += 1;
+        if (isAdmin) adminUserId = created.userId;
+      }
+
+      if (!adminUserId) {
+        throw new AggregateApiError("Failed to persist authorized administrator", 500, 500);
+      }
+
+      await tx.syncMapping.upsert({
+        where: {
+          institutionId_localType_localId_remoteSystem: {
+            institutionId: institution.id,
+            localType: "Institution",
+            localId: institution.id,
+            remoteSystem: REMOTE_SYSTEM,
+          },
+        },
+        create: {
+          institutionId: institution.id,
+          localType: "Institution",
+          localId: institution.id,
+          remoteSystem: REMOTE_SYSTEM,
+          remoteId: externalId,
+        },
+        update: { remoteId: externalId },
+      });
+
+      const connection = await tx.aggregateConnection.create({
+        data: {
+          institutionId: institution.id,
           host,
           encryptedApiKey,
           keyPrefix,
@@ -210,197 +335,102 @@ export async function confirmOnboardingChallenge(
           ownerCompanyExternalId: String(onboarding.key.owner_company_id),
           lastOnboardingAt: new Date(),
         },
-        update: {
-          host,
-          encryptedApiKey,
-          keyPrefix,
-          keyName: onboarding.key.name,
-          scopesJson: onboarding.key.scopes,
-          status: "ACTIVE",
-          ownerCompanyExternalId: String(onboarding.key.owner_company_id),
-          lastOnboardingAt: new Date(),
-          lastError: null,
+      });
+
+      const hotel = await tx.hotel.create({
+        data: {
+          institutionId: institution.id,
+          name: company.name,
+          code: "MAIN",
+          email: company.email ?? null,
+          phone: company.phone ?? null,
+          city: company.city ?? null,
+          country: company.country ?? null,
+          street: company.address?.street ?? null,
+          active: true,
+        },
+      });
+      await tx.hotelSettings.create({
+        data: {
+          hotelId: hotel.id,
+          timezone: company.timezone || "Africa/Luanda",
+          currency: (company.currency || "AOA").slice(0, 3),
+          locale: company.language || "pt",
+        },
+      });
+
+      await enqueueEmail(tx, {
+        institutionId: institution.id,
+        userId: adminUserId,
+        template: "ONBOARDING_TEMP_PASSWORD",
+        toEmail: adminEmail,
+        subject: "SIGESC Hotelaria — Conta institucional criada",
+        payloadJson: {
+          toName:
+            admin.full_name?.trim() ||
+            [admin.name, admin.surname].filter(Boolean).join(" ").trim() ||
+            adminEmail,
+          institutionName: company.name,
+          locale: company.language || "pt",
+        },
+        plaintextSecret: temporaryPassword,
+      });
+
+      await tx.aggregateSyncRun.create({
+        data: {
+          institutionId: institution.id,
+          connectionId: connection.id,
+          kind: "ONBOARDING",
+          success: true,
+          companiesUpserted: onboarding.companies.length,
+          usersUpserted,
+          pagesProcessed: 1,
+          detailsJson: {
+            keyPrefix,
+            adminExternalId: admin.external_id || String(admin.id),
+            adminEmail,
+          },
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          institutionId: institution.id,
+          action: "CREATE",
+          entityType: "Institution",
+          entityId: institution.id,
+          metadata: {
+            event: "aggregate.onboarded",
+            keyPrefix,
+            adminEmail,
+            usersUpserted,
+          },
         },
       });
 
       await tx.onboardingChallenge.update({
         where: { id: challenge.id },
-        data: { consumedAt: new Date(), institutionId: existingInstitution.id },
-      });
-
-      await tx.auditLog.create({
-        data: {
-          institutionId: existingInstitution.id,
-          action: "UPDATE",
-          entityType: "AggregateConnection",
-          entityId: connection.id,
-          metadata: { event: "aggregate.reconnected", keyPrefix, idempotent: true },
-        },
+        data: { consumedAt: new Date(), institutionId: institution.id },
       });
 
       return {
-        institutionId: existingInstitution.id,
+        institutionId: institution.id,
         connectionId: connection.id,
         administratorEmail: adminEmail,
         administratorName:
           admin.full_name?.trim() ||
           [admin.name, admin.surname].filter(Boolean).join(" ").trim() ||
           adminEmail,
-        usersUpserted: 0,
-        keyPrefix,
-        emailQueued: false,
-        alreadyExisted: true,
-      } satisfies ConfirmOnboardingResult;
-    }
-
-    const institution = await createInstitution(tx, company);
-    const roles = await ensureInstitutionRoles(tx as unknown as PrismaClient, institution.id);
-
-    let usersUpserted = 0;
-    let adminUserId: string | null = null;
-
-    for (const companyRow of onboarding.companies) {
-      for (const user of companyRow.users ?? []) {
-        const isAdmin =
-          (user.external_id || String(user.id)) === (admin.external_id || String(admin.id)) ||
-          user.email.trim().toLowerCase() === adminEmail;
-        const created = await upsertImportedUser(tx, institution.id, roles, user, {
-          isOfficialAdmin: isAdmin,
-          temporaryPasswordHash: isAdmin ? temporaryHash : undefined,
-          temporaryPasswordExpiresAt: isAdmin ? tempExpires : undefined,
-        });
-        usersUpserted += 1;
-        if (isAdmin) adminUserId = created.userId;
-      }
-    }
-
-    if (!adminUserId) {
-      throw new AggregateApiError("Failed to persist authorized administrator", 500, 500);
-    }
-
-    await tx.syncMapping.upsert({
-      where: {
-        institutionId_localType_localId_remoteSystem: {
-          institutionId: institution.id,
-          localType: "Institution",
-          localId: institution.id,
-          remoteSystem: REMOTE_SYSTEM,
-        },
-      },
-      create: {
-        institutionId: institution.id,
-        localType: "Institution",
-        localId: institution.id,
-        remoteSystem: REMOTE_SYSTEM,
-        remoteId: externalId,
-      },
-      update: { remoteId: externalId },
-    });
-
-    const connection = await tx.aggregateConnection.create({
-      data: {
-        institutionId: institution.id,
-        host,
-        encryptedApiKey,
-        keyPrefix,
-        keyName: onboarding.key.name,
-        scopesJson: onboarding.key.scopes,
-        status: "ACTIVE",
-        ownerCompanyExternalId: String(onboarding.key.owner_company_id),
-        lastOnboardingAt: new Date(),
-      },
-    });
-
-    const hotel = await tx.hotel.create({
-      data: {
-        institutionId: institution.id,
-        name: company.name,
-        code: "MAIN",
-        email: company.email ?? null,
-        phone: company.phone ?? null,
-        city: company.city ?? null,
-        country: company.country ?? null,
-        street: company.address?.street ?? null,
-        active: true,
-      },
-    });
-    await tx.hotelSettings.create({
-      data: {
-        hotelId: hotel.id,
-        timezone: company.timezone || "Africa/Luanda",
-        currency: (company.currency || "AOA").slice(0, 3),
-        locale: company.language || "pt",
-      },
-    });
-
-    await enqueueEmail(tx, {
-      institutionId: institution.id,
-      userId: adminUserId,
-      template: "ONBOARDING_TEMP_PASSWORD",
-      toEmail: adminEmail,
-      subject: "SIGESC Hotelaria — Conta institucional criada",
-      payloadJson: {
-        toName:
-          admin.full_name?.trim() ||
-          [admin.name, admin.surname].filter(Boolean).join(" ").trim() ||
-          adminEmail,
-        institutionName: company.name,
-        locale: company.language || "pt",
-      },
-      plaintextSecret: temporaryPassword,
-    });
-
-    await tx.aggregateSyncRun.create({
-      data: {
-        institutionId: institution.id,
-        connectionId: connection.id,
-        kind: "ONBOARDING",
-        success: true,
-        companiesUpserted: onboarding.companies.length,
         usersUpserted,
-        pagesProcessed: 1,
-        detailsJson: {
-          keyPrefix,
-          adminExternalId: admin.external_id || String(admin.id),
-          adminEmail,
-        },
-      },
-    });
-
-    await tx.auditLog.create({
-      data: {
-        institutionId: institution.id,
-        action: "CREATE",
-        entityType: "Institution",
-        entityId: institution.id,
-        metadata: {
-          event: "aggregate.onboarded",
-          keyPrefix,
-          adminEmail,
-          usersUpserted,
-        },
-      },
-    });
-
-    await tx.onboardingChallenge.update({
-      where: { id: challenge.id },
-      data: { consumedAt: new Date(), institutionId: institution.id },
-    });
-
-    return {
-      institutionId: institution.id,
-      connectionId: connection.id,
-      administratorEmail: adminEmail,
-      administratorName:
-        admin.full_name?.trim() ||
-        [admin.name, admin.surname].filter(Boolean).join(" ").trim() ||
-        adminEmail,
-      usersUpserted,
-      keyPrefix,
-      emailQueued: true,
-      alreadyExisted: false,
-    } satisfies ConfirmOnboardingResult;
-  });
+        keyPrefix,
+        emailQueued: true,
+        alreadyExisted: false,
+      } satisfies ConfirmOnboardingResult;
+    },
+    // Margem de segurança: onboarding pode ter muitos usuários.
+    // A correção estrutural (batch) reduz o tempo real; o timeout evita falhas residuais.
+    { timeout: 30_000, maxWait: 10_000 },
+  );
 
   // Send email in this request after successful commit (not a background job)
   if (result.emailQueued) {
