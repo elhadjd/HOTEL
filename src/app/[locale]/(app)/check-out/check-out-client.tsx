@@ -35,6 +35,7 @@ export function CheckOutClient({
   focusStayId?: string;
 }) {
   const router = useRouter();
+  const [scope, setScope] = useState<"overdue" | "today" | "all">("overdue");
   const [rows, setRows] = useState(initialDepartures);
   const [selectedId, setSelectedId] = useState(
     focusStayId && initialDepartures.some((d) => d.id === focusStayId)
@@ -46,9 +47,23 @@ export function CheckOutClient({
     openHousekeepingNonTurnover?: number;
     blockingMaintenance?: number;
     chargeCount?: number;
+    unbilledMappedChargeCount?: number;
     hasLinkedCustomer?: boolean;
   } | null>(null);
-  const [invoiceHint, setInvoiceHint] = useState<string | null>(null);
+  const [eligibleInvoice, setEligibleInvoice] = useState<{
+    id: string;
+    externalId: string;
+    saleKey: string | null;
+    status: string;
+    centralState: string | null;
+    centralTotal: number | null;
+    currency: string;
+  } | null>(null);
+  const [suggestedLines, setSuggestedLines] = useState<
+    Array<{ mappingLocalCode: string; label: string; quantity: number }>
+  >([]);
+  const [requestProforma, setRequestProforma] = useState(true);
+  const [resultInvoiceId, setResultInvoiceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -66,12 +81,26 @@ export function CheckOutClient({
     );
   }, [selected]);
 
-  function refresh() {
+  function loadScope(nextScope: "overdue" | "today" | "all") {
+    setScope(nextScope);
+    setError(null);
     startTransition(async () => {
-      const res = await fetch("/api/v1/stays/departures");
-      const data = await res.json();
-      if (res.ok) setRows(JSON.parse(JSON.stringify(data.departures ?? [])));
+      const params = new URLSearchParams({ scope: nextScope });
+      if (focusStayId) params.set("focusStayId", focusStayId);
+      const res = await fetch(`/api/v1/stays/departures?${params}`);
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const nextRows: Departure[] = JSON.parse(JSON.stringify(data.departures ?? []));
+        setRows(nextRows);
+        if (!nextRows.some((r) => r.id === selectedId)) {
+          setSelectedId(nextRows[0]?.id ?? null);
+        }
+      }
     });
+  }
+
+  function refresh() {
+    loadScope(scope);
   }
 
   function loadPrep() {
@@ -79,18 +108,17 @@ export function CheckOutClient({
     setError(null);
     startTransition(async () => {
       const res = await fetch(`/api/v1/stays/${selected.id}/check-out`);
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Falha ao preparar check-out");
         return;
       }
       setPrep(data.readiness ?? data.prep?.readiness ?? null);
-      const inv = data.invoice ?? data.eligibleInvoice;
-      setInvoiceHint(
-        inv
-          ? `${inv.externalId ?? inv.id} · ${inv.centralState ?? inv.status}`
-          : "Sem documento Aggregate ligado nesta vista",
-      );
+      const inv = data.eligibleInvoice ?? data.invoice ?? null;
+      const lines = Array.isArray(data.suggestedLines) ? data.suggestedLines : [];
+      setEligibleInvoice(inv);
+      setSuggestedLines(lines);
+      setRequestProforma(Boolean(lines.length > 0 || inv));
       setStep(2);
     });
   }
@@ -99,19 +127,42 @@ export function CheckOutClient({
     if (!selected) return;
     setError(null);
     setMessage(null);
+    setResultInvoiceId(null);
     startTransition(async () => {
+      const shouldRequestProforma =
+        requestProforma && (suggestedLines.length > 0 || Boolean(eligibleInvoice));
       const res = await fetch(`/api/v1/stays/${selected.id}/check-out`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requestProforma: false }),
+        body: JSON.stringify({
+          requestProforma: shouldRequestProforma,
+          ...(shouldRequestProforma && suggestedLines.length > 0
+            ? {
+                mappingLocalCodes: suggestedLines.map((l) => ({
+                  mappingLocalCode: l.mappingLocalCode,
+                  quantity: l.quantity,
+                })),
+              }
+            : {}),
+        }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Check-out failed");
         return;
       }
+      setResultInvoiceId(data.invoiceId ?? eligibleInvoice?.id ?? null);
+      if (data.handoff === "RECONCILIATION_PENDING" || data.handoff === "PENDING") {
+        setError(
+          data.message ??
+            "Handoff financeiro no SIGESC ficou pendente de reconciliação — check-out não foi concluído.",
+        );
+        return;
+      }
       setMessage(
-        `Check-out operacional concluído (handoff ${data.handoff ?? "OK"}). Quarto segue o turnover Phase 6 — não fica disponível até limpeza/inspecção.`,
+        data.handoff === "CENTRAL_CONFIRMED"
+          ? "Check-out concluído com Proforma/documento confirmado no SIGESC. Quarto segue para limpeza/inspecção."
+          : `Check-out operacional concluído (handoff ${data.handoff ?? "NOT_REQUIRED"}). Quarto segue para limpeza/inspecção.`,
       );
       setStep(3);
       refresh();
@@ -121,14 +172,43 @@ export function CheckOutClient({
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="font-ui text-[11px] uppercase tracking-[0.18em] text-stone-400">
-          Recepção
-        </p>
-        <h1 className="mt-1 text-3xl font-semibold text-ink-900">Check-out guiado</h1>
-        <p className="font-ui mt-1 max-w-2xl text-sm text-stone-600">
-          Reutiliza o serviço Phase 6. Check-out não paga nem publica documentos centrais.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="font-ui text-[11px] uppercase tracking-[0.18em] text-stone-400">
+            Recepção
+          </p>
+          <h1 className="mt-1 text-3xl font-semibold text-ink-900">Check-out guiado</h1>
+          <p className="font-ui mt-1 max-w-2xl text-sm text-stone-600">
+            Alterne entre partidas do dia/em atraso ou todas as estadias activas (para saídas
+            antecipadas). Pode emitir ou actualizar Proforma no SIGESC antes de encerrar o quarto.
+          </p>
+        </div>
+        <div className="font-ui flex flex-wrap gap-2 text-xs">
+          {(
+            [
+              ["overdue", "Hoje + em atraso"],
+              ["today", "Só hoje"],
+              ["all", "Todas activas (saída antecipada)"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                setStep(1);
+                loadScope(key);
+              }}
+              className={`rounded-md px-3 py-1.5 ${
+                scope === key
+                  ? "bg-ink-900 text-white"
+                  : "border border-sand-200 bg-white text-stone-600 hover:bg-sand-50"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {error ? <p className="font-ui text-sm text-danger">{error}</p> : null}
@@ -154,7 +234,7 @@ export function CheckOutClient({
                         {d.guest.firstName} {d.guest.lastName}
                       </p>
                       <p className="font-ui text-xs text-stone-500">
-                        {d.reservation.code} · {d.room.code}
+                        {d.reservation.code} · {d.room.code} · sai {d.expectedDeparture.slice(0, 10)}
                       </p>
                     </button>
                   </li>
@@ -229,12 +309,46 @@ export function CheckOutClient({
             </div>
             <div className="flex justify-between">
               <dt>Documento Aggregate</dt>
-              <dd className="text-right">{invoiceHint ?? "—"}</dd>
+              <dd className="text-right">
+                {eligibleInvoice ? (
+                  <Link
+                    href={`/integrations/invoices/${eligibleInvoice.id}`}
+                    className="text-teal-700 underline"
+                  >
+                    {eligibleInvoice.externalId} · {eligibleInvoice.centralState ?? eligibleInvoice.status}
+                  </Link>
+                ) : (
+                  "Nenhum documento criado ainda"
+                )}
+              </dd>
+            </div>
+            <div className="flex justify-between">
+              <dt>Itens mapeados por enviar ao SIGESC</dt>
+              <dd>{suggestedLines.length}</dd>
             </div>
           </dl>
-          <p className="font-ui mt-4 text-xs text-stone-500">
-            Confirmação explícita necessária. O turnover do quarto (DIRTY + tarefa) é feito pelo
-            serviço Phase 6 — não inventamos pagamento.
+
+          {suggestedLines.length > 0 || eligibleInvoice ? (
+            <label className="font-ui mt-4 flex items-center gap-2 text-sm text-ink-900">
+              <input
+                type="checkbox"
+                checked={requestProforma}
+                onChange={(e) => setRequestProforma(e.target.checked)}
+              />
+              {eligibleInvoice
+                ? "Confirmar / anexar itens pendentes ao documento SIGESC existente"
+                : "Criar e submeter Proforma no SIGESC com os itens mapeados da estadia"}
+            </label>
+          ) : (
+            <p className="font-ui mt-4 text-xs text-amber-800">
+              Sem itens mapeados por enviar. O check-out será apenas operacional (para faturar no
+              SIGESC, crie uma Cotação/Proforma na estadia ou em Faturas).
+            </p>
+          )}
+
+          <p className="font-ui mt-3 text-xs text-stone-500">
+            Confirmação explícita necessária. O turnover do quarto (DIRTY + tarefa) é feito
+            atomicamente; publicação e pagamento ocorrem apenas no SIGESC.
           </p>
           <div className="mt-5 flex gap-2">
             <Button type="button" variant="secondary" onClick={() => setStep(1)}>
@@ -255,8 +369,15 @@ export function CheckOutClient({
             limpeza e inspecção.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
+            {resultInvoiceId ? (
+              <Link href={`/integrations/invoices/${resultInvoiceId}`}>
+                <Button type="button">Abrir documento SIGESC</Button>
+              </Link>
+            ) : null}
             <Link href="/dashboard/front-desk">
-              <Button type="button">Front Desk</Button>
+              <Button type="button" variant="secondary">
+                Front Desk
+              </Button>
             </Link>
             <Link href="/housekeeping/operations">
               <Button type="button" variant="secondary">

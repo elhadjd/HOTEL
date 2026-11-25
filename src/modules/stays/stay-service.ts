@@ -4,8 +4,12 @@ import { assertGuestLinkedForOperations } from "@/modules/guests/guest-service";
 import {
   assertRoomAssignable,
   assertValidStayRange,
+  daysBetweenUtc,
+  lockRoomsForUpdate,
+  syncRoomOccupancyStatus,
   toDateOnlyUtc,
 } from "@/modules/reservations/availability";
+import { syncStayAccommodationCharges } from "./accommodation-billing";
 
 const ACTIVE_STAY: StayStatus[] = ["ACTIVE", "CHECKOUT_PENDING"];
 
@@ -18,10 +22,10 @@ export async function listArrivals(
   const next = new Date(day);
   next.setUTCDate(next.getUTCDate() + 1);
 
-  return prisma.reservation.findMany({
+  const rows = await prisma.reservation.findMany({
     where: {
       institutionId: ctx.institutionId,
-      status: { in: ["CONFIRMED", "PENDING"] },
+      status: { in: ["CONFIRMED", "PENDING", "CHECKED_IN"] },
       arrivalDate: { gte: day, lt: next },
       ...(filters?.hotelId ? { hotelId: filters.hotelId } : {}),
     },
@@ -33,10 +37,17 @@ export async function listArrivals(
           guest: { include: { customerMapping: true } },
         },
       },
-      stay: true,
+      stays: { select: { id: true, roomId: true, status: true } },
     },
     orderBy: { arrivalDate: "asc" },
     take: 200,
+  });
+
+  // Include CONFIRMED/PENDING arrivals, plus CHECKED_IN multi-room reservations that still have rooms awaiting check-in
+  return rows.filter((r) => {
+    if (r.status !== "CHECKED_IN") return true;
+    const checkedRoomIds = new Set(r.stays.map((s) => s.roomId));
+    return r.rooms.some((rr) => !checkedRoomIds.has(rr.roomId));
   });
 }
 
@@ -125,7 +136,9 @@ function assertRoomReadyForCheckIn(room: {
 }
 
 /**
- * Check-in: activate Stay, occupy room, record CheckInRecord.
+ * Check-in: activate Stay, occupy room, record CheckInRecord, and post initial
+ * operational accommodation charge (linked to SIGESC catalog when mapped).
+ * Supports multi-room reservations (one Stay per room).
  * Requires LINKED central customer for primary guest (and companions if provided).
  */
 export async function checkInReservation(
@@ -145,16 +158,13 @@ export async function checkInReservation(
     include: {
       rooms: true,
       guests: { include: { guest: { include: { customerMapping: true } } } },
-      stay: true,
+      stays: { select: { id: true, roomId: true, status: true } },
     },
   });
   if (!reservation) throw new Error("Reservation not found");
   assertSameInstitution(ctx, reservation.institutionId);
 
-  if (reservation.stay) {
-    throw new Error("Reservation already has a stay (duplicate check-in)");
-  }
-  if (!["CONFIRMED", "PENDING"].includes(reservation.status)) {
+  if (!["CONFIRMED", "PENDING", "CHECKED_IN"].includes(reservation.status)) {
     throw new Error(`Reservation status ${reservation.status} is not eligible for check-in`);
   }
 
@@ -163,8 +173,21 @@ export async function checkInReservation(
   if (!primary) throw new Error("Reservation has no guest assigned");
   await assertGuestLinkedForOperations(prisma, ctx, primary.guestId);
 
-  const roomId = input.roomId ?? reservation.rooms[0]?.roomId;
+  const checkedInRoomIds = new Set(reservation.stays.map((s) => s.roomId));
+  const nextPendingRoom = reservation.rooms.find((rr) => !checkedInRoomIds.has(rr.roomId));
+  const roomId = input.roomId ?? nextPendingRoom?.roomId ?? reservation.rooms[0]?.roomId;
   if (!roomId) throw new Error("No room assigned to reservation");
+
+  if (checkedInRoomIds.has(roomId)) {
+    throw new Error("Reservation already has a stay for this room (duplicate check-in)");
+  }
+  if (
+    reservation.status === "CHECKED_IN" &&
+    reservation.rooms.length <= 1 &&
+    reservation.stays.length > 0
+  ) {
+    throw new Error("Reservation already has a stay (duplicate check-in)");
+  }
 
   const companionIds = [...new Set(input.companionGuestIds ?? [])].filter(
     (id) => id !== primary.guestId,
@@ -174,20 +197,52 @@ export async function checkInReservation(
   }
 
   const occupantCount = 1 + companionIds.length;
+  const effectiveOccupants =
+    reservation.rooms.length <= 1
+      ? Math.max(occupantCount, reservation.adults + reservation.children)
+      : occupantCount;
   const arrival = input.actualArrival ? new Date(input.actualArrival) : new Date();
-  const expectedDeparture = toDateOnlyUtc(reservation.departureDate);
+  const resRoom = reservation.rooms.find((rr) => rr.roomId === roomId);
+  const expectedDeparture = toDateOnlyUtc(resRoom?.departureDate ?? reservation.departureDate);
 
   return prisma.$transaction(async (tx) => {
-    // Conditional claim: only update if still CONFIRMED/PENDING
-    const claimed = await tx.reservation.updateMany({
+    await lockRoomsForUpdate(tx, [roomId]);
+
+    // Re-check duplicate stay for this reservation+room inside the locked transaction
+    const existingStayForRoom = await tx.stay.findFirst({
       where: {
-        id: reservation.id,
-        status: { in: ["CONFIRMED", "PENDING"] },
+        reservationId: reservation.id,
+        roomId,
       },
-      data: { status: "CHECKED_IN" },
+      select: { id: true },
     });
-    if (claimed.count !== 1) {
+    if (existingStayForRoom) {
+      throw new Error("Reservation already has a stay for this room (concurrent claim)");
+    }
+
+    const freshReservation = await tx.reservation.findUnique({
+      where: { id: reservation.id },
+      select: { status: true },
+    });
+    if (
+      !freshReservation ||
+      !["CONFIRMED", "PENDING", "CHECKED_IN"].includes(freshReservation.status)
+    ) {
       throw new Error("Reservation is no longer eligible for check-in (concurrent claim)");
+    }
+
+    const transitionedToCheckedIn = freshReservation.status !== "CHECKED_IN";
+    if (transitionedToCheckedIn) {
+      const claimed = await tx.reservation.updateMany({
+        where: {
+          id: reservation.id,
+          status: { in: ["CONFIRMED", "PENDING"] },
+        },
+        data: { status: "CHECKED_IN" },
+      });
+      if (claimed.count !== 1) {
+        throw new Error("Reservation is no longer eligible for check-in (concurrent claim)");
+      }
     }
 
     const room = await tx.room.findUnique({ where: { id: roomId } });
@@ -195,14 +250,16 @@ export async function checkInReservation(
       throw new Error("Room not found for this hotel");
     }
     assertRoomReadyForCheckIn(room);
-    if (room.capacity < occupantCount) {
-      throw new Error(`Room capacity ${room.capacity} is insufficient for ${occupantCount} occupants`);
+    if (room.capacity < effectiveOccupants) {
+      throw new Error(
+        `Room capacity ${room.capacity} is insufficient for ${effectiveOccupants} occupants`,
+      );
     }
 
     await assertRoomAssignable(tx, {
       roomId,
       hotelId: reservation.hotelId,
-      arrival: toDateOnlyUtc(reservation.arrivalDate),
+      arrival: toDateOnlyUtc(resRoom?.arrivalDate ?? reservation.arrivalDate),
       departure: expectedDeparture,
       excludeReservationId: reservation.id,
     });
@@ -254,17 +311,19 @@ export async function checkInReservation(
       },
     });
 
-    await tx.room.update({
-      where: { id: roomId },
-      data: { occupancyStatus: "OCCUPIED" },
-    });
+    await syncRoomOccupancyStatus(tx, roomId);
+
+    // Bridge RatePlan / RoomCategory SIGESC catalog mapping into the stay account
+    await syncStayAccommodationCharges(tx, ctx, stay.id, "CHECK_IN");
 
     await tx.reservationEvent.create({
       data: {
         reservationId: reservation.id,
-        fromStatus: reservation.status,
+        fromStatus: freshReservation.status,
         toStatus: "CHECKED_IN",
-        note: "Check-in completed",
+        note: transitionedToCheckedIn
+          ? `Check-in completed (room ${room.code})`
+          : `Additional room check-in completed (room ${room.code})`,
         actorUserId: ctx.userId,
       },
     });
@@ -362,6 +421,9 @@ export async function transferStayRoom(
       throw new Error("Destination room is the same as current room");
     }
 
+    const fromRoomId = stay.roomId;
+    await lockRoomsForUpdate(tx, [fromRoomId, input.toRoomId]);
+
     const dest = await tx.room.findUnique({ where: { id: input.toRoomId } });
     if (!dest || dest.hotelId !== stay.hotelId) {
       throw new Error("Destination room not found for this hotel");
@@ -372,15 +434,17 @@ export async function transferStayRoom(
       throw new Error("Destination room capacity is insufficient");
     }
 
+    const today = toDateOnlyUtc(new Date());
+    const departureDay = toDateOnlyUtc(stay.expectedDeparture);
+
     await assertRoomAssignable(tx, {
       roomId: input.toRoomId,
       hotelId: stay.hotelId,
-      arrival: toDateOnlyUtc(new Date()),
-      departure: toDateOnlyUtc(stay.expectedDeparture),
+      arrival: today,
+      departure: departureDay,
       excludeReservationId: stay.reservationId,
+      excludeStayId: stayId,
     });
-
-    const fromRoomId = stay.roomId;
 
     const moved = await tx.stay.updateMany({
       where: { id: stayId, roomId: fromRoomId, status: { in: ACTIVE_STAY } },
@@ -389,6 +453,32 @@ export async function transferStayRoom(
     if (moved.count !== 1) {
       throw new Error("Stay room changed concurrently — transfer aborted");
     }
+
+    // Keep ReservationRoom atomically synchronized so the old room is released
+    // and the destination room is protected against overlapping bookings.
+    const existingOldLink = await tx.reservationRoom.findUnique({
+      where: {
+        reservationId_roomId: { reservationId: stay.reservationId, roomId: fromRoomId },
+      },
+    });
+    if (existingOldLink) {
+      await tx.reservationRoom.delete({ where: { id: existingOldLink.id } });
+    }
+    await tx.reservationRoom.upsert({
+      where: {
+        reservationId_roomId: { reservationId: stay.reservationId, roomId: input.toRoomId },
+      },
+      create: {
+        reservationId: stay.reservationId,
+        roomId: input.toRoomId,
+        arrivalDate: existingOldLink?.arrivalDate ?? toDateOnlyUtc(stay.actualArrival),
+        departureDate: departureDay,
+        nightlyRate: existingOldLink?.nightlyRate ?? null,
+      },
+      update: {
+        departureDate: departureDay,
+      },
+    });
 
     await tx.stayRoomHistory.create({
       data: {
@@ -402,12 +492,13 @@ export async function transferStayRoom(
 
     await tx.room.update({
       where: { id: fromRoomId },
-      data: { occupancyStatus: "AVAILABLE", housekeepingStatus: "DIRTY" },
+      data: { housekeepingStatus: "DIRTY" },
     });
-    await tx.room.update({
-      where: { id: input.toRoomId },
-      data: { occupancyStatus: "OCCUPIED" },
-    });
+    await syncRoomOccupancyStatus(tx, fromRoomId);
+    await syncRoomOccupancyStatus(tx, input.toRoomId);
+
+    // Recalculate unbilled accommodation charge if room category / rate changed
+    await syncStayAccommodationCharges(tx, ctx, stayId, "TRANSFER");
 
     await tx.housekeepingTask.create({
       data: {
@@ -451,18 +542,33 @@ export async function extendStay(
   }
   const previous = toDateOnlyUtc(stay.expectedDeparture);
   const next = toDateOnlyUtc(input.newDeparture);
-  assertValidStayRange(toDateOnlyUtc(stay.actualArrival), next);
+  const arrivalDay = toDateOnlyUtc(stay.actualArrival);
+  assertValidStayRange(arrivalDay, next);
   if (next.getTime() <= previous.getTime()) {
     throw new Error("New departure must be after the current expected departure");
   }
 
+  const hotelSettings = await prisma.hotelSettings.findUnique({
+    where: { hotelId: stay.hotelId },
+    select: { maxStayNights: true },
+  });
+  const totalNights = daysBetweenUtc(arrivalDay, next);
+  if (hotelSettings?.maxStayNights != null && totalNights > hotelSettings.maxStayNights) {
+    throw new Error(
+      `Stay exceeds hotel maximum of ${hotelSettings.maxStayNights} night(s)`,
+    );
+  }
+
   await prisma.$transaction(async (tx) => {
+    await lockRoomsForUpdate(tx, [stay.roomId]);
+
     await assertRoomAssignable(tx, {
       roomId: stay.roomId,
       hotelId: stay.hotelId,
       arrival: previous,
       departure: next,
       excludeReservationId: stay.reservationId,
+      excludeStayId: stayId,
     });
 
     await tx.stay.update({
@@ -472,14 +578,21 @@ export async function extendStay(
         originalDeparture: stay.originalDeparture ?? previous,
       },
     });
-    await tx.reservation.update({
-      where: { id: stay.reservationId },
-      data: { departureDate: next },
-    });
     await tx.reservationRoom.updateMany({
       where: { reservationId: stay.reservationId, roomId: stay.roomId },
       data: { departureDate: next },
     });
+
+    // Keep Reservation.departureDate aligned with the latest departure among its rooms
+    const maxRoomDep = await tx.reservationRoom.aggregate({
+      where: { reservationId: stay.reservationId },
+      _max: { departureDate: true },
+    });
+    await tx.reservation.update({
+      where: { id: stay.reservationId },
+      data: { departureDate: maxRoomDep._max.departureDate ?? next },
+    });
+
     await tx.stayDateChange.create({
       data: {
         stayId,
@@ -490,6 +603,9 @@ export async function extendStay(
         actorUserId: ctx.userId,
       },
     });
+
+    await syncStayAccommodationCharges(tx, ctx, stayId, "EXTENSION");
+
     await tx.auditLog.create({
       data: {
         institutionId: ctx.institutionId,
@@ -527,6 +643,8 @@ export async function markEarlyDepartureDate(
   }
 
   await prisma.$transaction(async (tx) => {
+    await lockRoomsForUpdate(tx, [stay.roomId]);
+
     await tx.stay.update({
       where: { id: stayId },
       data: {
@@ -534,10 +652,21 @@ export async function markEarlyDepartureDate(
         originalDeparture: stay.originalDeparture ?? previous,
       },
     });
-    await tx.reservation.update({
-      where: { id: stay.reservationId },
+    // Sync ReservationRoom so freed future nights are immediately available for new bookings
+    await tx.reservationRoom.updateMany({
+      where: { reservationId: stay.reservationId, roomId: stay.roomId },
       data: { departureDate: next },
     });
+
+    const maxRoomDep = await tx.reservationRoom.aggregate({
+      where: { reservationId: stay.reservationId },
+      _max: { departureDate: true },
+    });
+    await tx.reservation.update({
+      where: { id: stay.reservationId },
+      data: { departureDate: maxRoomDep._max.departureDate ?? next },
+    });
+
     await tx.stayDateChange.create({
       data: {
         stayId,
@@ -548,6 +677,9 @@ export async function markEarlyDepartureDate(
         actorUserId: ctx.userId,
       },
     });
+
+    await syncStayAccommodationCharges(tx, ctx, stayId, "EARLY_DEPARTURE");
+
     await tx.auditLog.create({
       data: {
         institutionId: ctx.institutionId,

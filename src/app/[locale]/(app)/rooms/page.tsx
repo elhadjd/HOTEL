@@ -8,6 +8,7 @@ import { requirePageTenant } from "@/server/page-auth";
 import { listHotels } from "@/modules/hotels/hotel-service";
 import { listRooms, roomsByFloor } from "@/modules/rooms/room-service";
 import { CreateRoomForm } from "./create-room-form";
+import { CategoryMappingPanel } from "./category-mapping-panel";
 
 export default async function RoomsPage({
   params,
@@ -32,12 +33,25 @@ export default async function RoomsPage({
     );
   }
 
-  const rooms = await listRooms(prisma, ctx, hotelId);
+  const [rooms, categories, catalogMappings] = await Promise.all([
+    listRooms(prisma, ctx, hotelId),
+    prisma.roomCategory.findMany({
+      where: { hotelId },
+      orderBy: { name: "asc" },
+    }),
+    prisma.productCatalogMapping.findMany({
+      where: { institutionId: ctx.institutionId, active: true },
+      orderBy: { localCode: "asc" },
+      select: {
+        id: true,
+        localCode: true,
+        localLabel: true,
+        centralSalePrice: true,
+      },
+      take: 200,
+    }),
+  ]);
   const floors = roomsByFloor(rooms);
-  const categories = await prisma.roomCategory.findMany({
-    where: { hotelId },
-    orderBy: { name: "asc" },
-  });
 
   return (
     <AppShell title={t("nav.rooms")}>
@@ -148,7 +162,28 @@ export default async function RoomsPage({
             </div>
           )}
         </div>
-        <CreateRoomForm hotelId={hotelId} categories={categories.map((c) => ({ id: c.id, name: c.name }))} />
+        <div className="space-y-6">
+          <CreateRoomForm
+            hotelId={hotelId}
+            categories={categories.map((c) => ({ id: c.id, name: c.name, code: c.code }))}
+          />
+          <CategoryMappingPanel
+            hotelId={hotelId}
+            categories={categories.map((c) => ({
+              id: c.id,
+              name: c.name,
+              code: c.code,
+              accommodationMappingId: c.accommodationMappingId,
+            }))}
+            catalogMappings={catalogMappings.map((m) => ({
+              id: m.id,
+              localCode: m.localCode,
+              localLabel: m.localLabel,
+              centralSalePrice:
+                m.centralSalePrice != null ? Number(m.centralSalePrice) : null,
+            }))}
+          />
+        </div>
       </div>
     </AppShell>
   );

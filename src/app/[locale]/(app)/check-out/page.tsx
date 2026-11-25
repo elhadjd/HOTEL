@@ -17,7 +17,10 @@ export default async function CheckOutPage({
   setRequestLocale(locale);
   const t = await getTranslations();
   const ctx = await requirePageTenant("stays.checkout");
-  const departures = await listDepartures(prisma, ctx);
+  const departures = await listDepartures(prisma, ctx, {
+    includeOverdue: true,
+    focusStayId: query.stayId,
+  });
   return (
     <AppShell title={t("nav.checkOut")}>
       <CheckOutClient

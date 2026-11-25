@@ -4,8 +4,46 @@ import { getHotel } from "@/modules/hotels/hotel-service";
 import {
   assertRoomAssignable,
   assertValidStayRange,
+  daysBetweenUtc,
+  lockRoomsForUpdate,
+  syncRoomOccupancyStatus,
   toDateOnlyUtc,
 } from "./availability";
+
+export function assertReservationHotelPolicies(params: {
+  nights: number;
+  adults: number;
+  children: number;
+  settings?: {
+    allowChildren?: boolean;
+    maxStayNights?: number | null;
+  } | null;
+  rooms?: Array<{
+    code?: string;
+    capacity: number;
+  }>;
+}): void {
+  if (params.settings && params.settings.allowChildren === false && params.children > 0) {
+    throw new Error("This hotel does not allow children");
+  }
+  if (
+    params.settings?.maxStayNights != null &&
+    params.nights > params.settings.maxStayNights
+  ) {
+    throw new Error(
+      `Stay exceeds hotel maximum of ${params.settings.maxStayNights} night(s)`,
+    );
+  }
+  if (params.rooms && params.rooms.length > 0) {
+    const totalGuests = params.adults + params.children;
+    const totalCapacity = params.rooms.reduce((sum, r) => sum + r.capacity, 0);
+    if (totalGuests > totalCapacity) {
+      throw new Error(
+        `Assigned room capacity (${totalCapacity}) is insufficient for ${totalGuests} guest(s)`,
+      );
+    }
+  }
+}
 
 function reservationCode(): string {
   const n = Date.now().toString(36).toUpperCase();
@@ -83,10 +121,33 @@ export async function createReservation(
     status?: Extract<ReservationStatus, "DRAFT" | "PENDING" | "CONFIRMED">;
   },
 ) {
-  await getHotel(prisma, ctx, input.hotelId);
+  const hotel = await getHotel(prisma, ctx, input.hotelId);
   const arrival = toDateOnlyUtc(input.arrivalDate);
   const departure = toDateOnlyUtc(input.departureDate);
   assertValidStayRange(arrival, departure);
+
+  const adults = input.adults ?? 1;
+  const children = input.children ?? 0;
+  const nights = daysBetweenUtc(arrival, departure);
+  const roomIds = [...new Set(input.roomIds ?? [])];
+
+  const assignedRooms = roomIds.length
+    ? await prisma.room.findMany({
+        where: { id: { in: roomIds }, hotelId: input.hotelId },
+        select: { id: true, code: true, categoryId: true, capacity: true },
+      })
+    : [];
+  if (assignedRooms.length !== roomIds.length) {
+    throw new Error("One or more rooms were not found for this hotel");
+  }
+
+  assertReservationHotelPolicies({
+    nights,
+    adults,
+    children,
+    settings: hotel.settings,
+    rooms: assignedRooms,
+  });
 
   if (input.primaryGuestId) {
     const guest = await prisma.guest.findUnique({
@@ -107,7 +168,6 @@ export async function createReservation(
   }
 
   const status = input.status ?? "PENDING";
-  const roomIds = input.roomIds ?? [];
 
   // Server-side accommodation quote when rooms are assigned (never trust browser prices)
   const roomQuotes: Array<{
@@ -117,26 +177,23 @@ export async function createReservation(
     subtotal: number;
   }> = [];
   let operationalTotal: number | null = null;
-  let quoteCurrency = "AOA";
+  let quoteCurrency = hotel.settings?.currency ?? "AOA";
 
-  if (roomIds.length > 0) {
+  if (assignedRooms.length > 0) {
     const { quoteAccommodation } = await import("@/modules/rates/rates-service");
-    const rooms = await prisma.room.findMany({
-      where: { id: { in: roomIds }, hotelId: input.hotelId },
-      select: { id: true, categoryId: true },
-    });
-    if (rooms.length !== roomIds.length) {
-      throw new Error("One or more rooms were not found for this hotel");
-    }
+    const occupantsPerRoom = Math.max(
+      1,
+      Math.ceil((adults + children) / assignedRooms.length),
+    );
     let sum = 0;
-    for (const room of rooms) {
+    for (const room of assignedRooms) {
       try {
         const quote = await quoteAccommodation(prisma, ctx, {
           hotelId: input.hotelId,
           categoryId: room.categoryId,
           arrivalDate: arrival,
           departureDate: departure,
-          occupants: (input.adults ?? 1) + (input.children ?? 0),
+          occupants: occupantsPerRoom,
         });
         quoteCurrency = quote.currency;
         const nightly =
@@ -166,6 +223,8 @@ export async function createReservation(
   }
 
   return prisma.$transaction(async (tx) => {
+    await lockRoomsForUpdate(tx, roomIds);
+
     for (const roomId of roomIds) {
       await assertRoomAssignable(tx, {
         roomId,
@@ -185,8 +244,8 @@ export async function createReservation(
         status,
         arrivalDate: arrival,
         departureDate: departure,
-        adults: input.adults ?? 1,
-        children: input.children ?? 0,
+        adults,
+        children,
         source: input.source ?? null,
         internalNotes: input.internalNotes ?? null,
         operationalTotal,
@@ -221,13 +280,8 @@ export async function createReservation(
       },
     });
 
-    if (status === "CONFIRMED" || status === "PENDING") {
-      for (const roomId of roomIds) {
-        await tx.room.update({
-          where: { id: roomId },
-          data: { occupancyStatus: "RESERVED" },
-        });
-      }
+    for (const roomId of roomIds) {
+      await syncRoomOccupancyStatus(tx, roomId);
     }
 
     await tx.auditLog.create({
@@ -261,6 +315,9 @@ export async function confirmReservation(
   }
 
   return prisma.$transaction(async (tx) => {
+    const roomIds = existing.rooms.map((rr) => rr.roomId);
+    await lockRoomsForUpdate(tx, roomIds);
+
     for (const rr of existing.rooms) {
       await assertRoomAssignable(tx, {
         roomId: rr.roomId,
@@ -281,10 +338,7 @@ export async function confirmReservation(
     });
 
     for (const rr of reservation.rooms) {
-      await tx.room.update({
-        where: { id: rr.roomId },
-        data: { occupancyStatus: "RESERVED" },
-      });
+      await syncRoomOccupancyStatus(tx, rr.roomId);
     }
 
     await tx.reservationEvent.create({
@@ -314,6 +368,11 @@ export async function cancelReservation(
   }
 
   return prisma.$transaction(async (tx) => {
+    await lockRoomsForUpdate(
+      tx,
+      existing.rooms.map((rr) => rr.roomId),
+    );
+
     const reservation = await tx.reservation.update({
       where: { id: reservationId },
       data: { status: "CANCELLED" },
@@ -324,20 +383,7 @@ export async function cancelReservation(
     });
 
     for (const rr of reservation.rooms) {
-      // Only free if no other blocking assignment
-      const other = await tx.reservationRoom.count({
-        where: {
-          roomId: rr.roomId,
-          reservationId: { not: reservationId },
-          reservation: { status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] } },
-        },
-      });
-      if (other === 0 && rr.room.occupancyStatus === "RESERVED") {
-        await tx.room.update({
-          where: { id: rr.roomId },
-          data: { occupancyStatus: "AVAILABLE" },
-        });
-      }
+      await syncRoomOccupancyStatus(tx, rr.roomId);
     }
 
     await tx.reservationEvent.create({
@@ -365,6 +411,8 @@ export async function assignRoom(
   }
 
   return prisma.$transaction(async (tx) => {
+    await lockRoomsForUpdate(tx, [roomId]);
+
     await assertRoomAssignable(tx, {
       roomId,
       hotelId: existing.hotelId,
@@ -387,12 +435,7 @@ export async function assignRoom(
       include: { room: true },
     });
 
-    if (["PENDING", "CONFIRMED"].includes(existing.status)) {
-      await tx.room.update({
-        where: { id: roomId },
-        data: { occupancyStatus: "RESERVED" },
-      });
-    }
+    await syncRoomOccupancyStatus(tx, roomId);
 
     await tx.reservationEvent.create({
       data: {

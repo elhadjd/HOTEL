@@ -37,7 +37,7 @@ export async function getFrontDeskSnapshot(
   const { day, next } = dayRange(filters.onDate);
   const hotelId = filters.hotelId;
   const hotelScope = hotelId
-    ? { hotelId }
+    ? { hotelId, hotel: { institutionId: ctx.institutionId } }
     : { hotel: { institutionId: ctx.institutionId } };
   const reservationHotel = hotelId ? { hotelId } : {};
   const stayHotel = hotelId ? { hotelId } : {};
@@ -72,7 +72,7 @@ export async function getFrontDeskSnapshot(
             guest: { include: { customerMapping: true } },
           },
         },
-        stay: { select: { id: true, status: true } },
+        stays: { select: { id: true, roomId: true, status: true } },
       },
       orderBy: { arrivalDate: "asc" },
       take: 100,
@@ -202,7 +202,11 @@ export async function getFrontDeskSnapshot(
 
   const arrivalRows = arrivals.map((r) => {
     const primary = r.guests.find((g) => g.isPrimary) ?? r.guests[0];
-    const roomAssign = r.rooms[0]?.room ?? null;
+    const checkedRoomIds = new Set(r.stays.map((s) => s.roomId));
+    const pendingRoomAssign =
+      r.rooms.find((rr) => !checkedRoomIds.has(rr.roomId))?.room ?? r.rooms[0]?.room ?? null;
+    const allCheckedIn =
+      r.rooms.length > 0 && r.rooms.every((rr) => checkedRoomIds.has(rr.roomId));
     const linked = isGuestCustomerLinked(primary?.guest.customerMapping);
     return {
       reservationId: r.id,
@@ -215,21 +219,21 @@ export async function getFrontDeskSnapshot(
         : "—",
       guestId: primary?.guest.id ?? null,
       customerLinked: linked,
-      roomCode: roomAssign?.code ?? null,
-      roomId: roomAssign?.id ?? null,
-      categoryName: roomAssign?.category?.name ?? null,
-      housekeepingStatus: roomAssign?.housekeepingStatus ?? null,
-      maintenanceStatus: roomAssign?.maintenanceStatus ?? null,
-      occupancyStatus: roomAssign?.occupancyStatus ?? null,
-      stayId: r.stay?.id ?? null,
+      roomCode: pendingRoomAssign?.code ?? null,
+      roomId: pendingRoomAssign?.id ?? null,
+      categoryName: pendingRoomAssign?.category?.name ?? null,
+      housekeepingStatus: pendingRoomAssign?.housekeepingStatus ?? null,
+      maintenanceStatus: pendingRoomAssign?.maintenanceStatus ?? null,
+      occupancyStatus: pendingRoomAssign?.occupancyStatus ?? null,
+      stayId: r.stays[0]?.id ?? null,
       checkInEligible:
-        !r.stay &&
-        ["CONFIRMED", "PENDING"].includes(r.status) &&
-        Boolean(roomAssign) &&
+        !allCheckedIn &&
+        ["CONFIRMED", "PENDING", "CHECKED_IN"].includes(r.status) &&
+        Boolean(pendingRoomAssign) &&
         linked &&
-        roomAssign?.housekeepingStatus === "CLEAN" &&
-        roomAssign?.maintenanceStatus === "OK" &&
-        roomAssign?.occupancyStatus !== "OCCUPIED",
+        pendingRoomAssign?.housekeepingStatus === "CLEAN" &&
+        pendingRoomAssign?.maintenanceStatus === "OK" &&
+        pendingRoomAssign?.occupancyStatus !== "OCCUPIED",
     };
   });
 

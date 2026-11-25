@@ -6,9 +6,35 @@ export async function listCategories(prisma: PrismaClient, ctx: TenantContext, h
   await getHotel(prisma, ctx, hotelId);
   return prisma.roomCategory.findMany({
     where: { hotelId },
-    include: { _count: { select: { rooms: true } } },
+    include: {
+      _count: { select: { rooms: true } },
+      accommodationMapping: {
+        select: {
+          id: true,
+          localCode: true,
+          localLabel: true,
+          centralProductId: true,
+          centralSalePrice: true,
+          active: true,
+        },
+      },
+    },
     orderBy: { name: "asc" },
   });
+}
+
+async function assertCatalogMappingOwned(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+  mappingId: string,
+) {
+  const mapping = await prisma.productCatalogMapping.findUnique({
+    where: { id: mappingId },
+  });
+  if (!mapping || mapping.institutionId !== ctx.institutionId || !mapping.active) {
+    throw new Error("Active SIGESC catalog mapping not found for this institution");
+  }
+  return mapping;
 }
 
 export async function createCategory(
@@ -24,9 +50,13 @@ export async function createCategory(
     maxChildren?: number;
     bedConfiguration?: string;
     defaultTariff?: number;
+    accommodationMappingId?: string | null;
   },
 ) {
   await getHotel(prisma, ctx, hotelId);
+  if (input.accommodationMappingId) {
+    await assertCatalogMappingOwned(prisma, ctx, input.accommodationMappingId);
+  }
   return prisma.roomCategory.create({
     data: {
       hotelId,
@@ -38,7 +68,77 @@ export async function createCategory(
       maxChildren: input.maxChildren ?? 0,
       bedConfiguration: input.bedConfiguration ?? null,
       defaultTariff: input.defaultTariff ?? null,
+      accommodationMappingId: input.accommodationMappingId ?? null,
       active: true,
+    },
+    include: {
+      accommodationMapping: {
+        select: {
+          id: true,
+          localCode: true,
+          localLabel: true,
+          centralProductId: true,
+          centralSalePrice: true,
+          active: true,
+        },
+      },
+    },
+  });
+}
+
+export async function updateCategory(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+  hotelId: string,
+  categoryId: string,
+  input: Partial<{
+    name: string;
+    description: string | null;
+    maxOccupancy: number;
+    maxAdults: number;
+    maxChildren: number;
+    bedConfiguration: string | null;
+    defaultTariff: number | null;
+    accommodationMappingId: string | null;
+    active: boolean;
+  }>,
+) {
+  await getHotel(prisma, ctx, hotelId);
+  const existing = await prisma.roomCategory.findUnique({ where: { id: categoryId } });
+  if (!existing || existing.hotelId !== hotelId) {
+    throw new Error("Room category not found for this hotel");
+  }
+  if (input.accommodationMappingId) {
+    await assertCatalogMappingOwned(prisma, ctx, input.accommodationMappingId);
+  }
+  return prisma.roomCategory.update({
+    where: { id: categoryId },
+    data: {
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.description !== undefined ? { description: input.description } : {}),
+      ...(input.maxOccupancy !== undefined ? { maxOccupancy: input.maxOccupancy } : {}),
+      ...(input.maxAdults !== undefined ? { maxAdults: input.maxAdults } : {}),
+      ...(input.maxChildren !== undefined ? { maxChildren: input.maxChildren } : {}),
+      ...(input.bedConfiguration !== undefined
+        ? { bedConfiguration: input.bedConfiguration }
+        : {}),
+      ...(input.defaultTariff !== undefined ? { defaultTariff: input.defaultTariff } : {}),
+      ...(input.accommodationMappingId !== undefined
+        ? { accommodationMappingId: input.accommodationMappingId }
+        : {}),
+      ...(input.active !== undefined ? { active: input.active } : {}),
+    },
+    include: {
+      accommodationMapping: {
+        select: {
+          id: true,
+          localCode: true,
+          localLabel: true,
+          centralProductId: true,
+          centralSalePrice: true,
+          active: true,
+        },
+      },
     },
   });
 }

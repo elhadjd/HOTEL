@@ -14,6 +14,7 @@ type Arrival = {
   arrivalDate: string;
   departureDate: string;
   adults: number;
+  children?: number;
   hotel: { name: string; code: string };
   rooms: Array<{
     room: {
@@ -35,18 +36,30 @@ type Arrival = {
       customerMapping: { syncStatus: string; externalCustomerId: string | null } | null;
     };
   }>;
-  stay: { id: string } | null;
+  stays?: Array<{ id: string; roomId: string; status: string }>;
 };
 
-function eligibility(a: Arrival) {
+function eligibility(a: Arrival, chosenRoomId?: string | null) {
   const primary = a.guests.find((g) => g.isPrimary) ?? a.guests[0];
-  const room = a.rooms[0]?.room;
+  const checkedRoomIds = new Set((a.stays ?? []).map((s) => s.roomId));
+  const pendingRooms = a.rooms.filter((rr) => !checkedRoomIds.has(rr.room.id));
+  const room =
+    (chosenRoomId ? a.rooms.find((rr) => rr.room.id === chosenRoomId)?.room : null) ??
+    pendingRooms[0]?.room ??
+    a.rooms[0]?.room;
   const linked =
     primary?.guest.customerMapping?.syncStatus === "LINKED" &&
     Boolean(primary.guest.customerMapping?.externalCustomerId);
+  const totalGuests = a.adults + (a.children ?? 0);
   const reasons: string[] = [];
-  if (a.stay) reasons.push("Já tem estadia (check-in duplicado)");
-  if (!["CONFIRMED", "PENDING"].includes(a.status)) reasons.push("Reserva não elegível");
+  if (room && checkedRoomIds.has(room.id)) {
+    reasons.push("Este quarto já tem estadia activa (check-in duplicado)");
+  } else if (a.rooms.length > 0 && pendingRooms.length === 0) {
+    reasons.push("Todos os quartos desta reserva já fizeram check-in");
+  }
+  if (!["CONFIRMED", "PENDING", "CHECKED_IN"].includes(a.status)) {
+    reasons.push("Reserva não elegível");
+  }
   if (!room) reasons.push("Sem quarto atribuído");
   if (room && room.housekeepingStatus !== "CLEAN") reasons.push("Quarto não CLEAN");
   if (room && room.maintenanceStatus && room.maintenanceStatus !== "OK") {
@@ -54,8 +67,18 @@ function eligibility(a: Arrival) {
   }
   if (room && room.occupancyStatus === "OCCUPIED") reasons.push("Quarto ocupado");
   if (!linked) reasons.push("Hóspede sem cliente SIGESC ligado");
-  if (room?.capacity != null && a.adults > room.capacity) reasons.push("Capacidade excedida");
-  return { ok: reasons.length === 0, reasons, primary, room, linked };
+  if (a.rooms.length <= 1 && room?.capacity != null && totalGuests > room.capacity) {
+    reasons.push(`Capacidade excedida (${totalGuests} hóspedes > ${room.capacity})`);
+  }
+  return {
+    ok: reasons.length === 0,
+    reasons,
+    primary,
+    room,
+    linked,
+    checkedRoomIds,
+    pendingRooms,
+  };
 }
 
 export function CheckInClient({
@@ -73,6 +96,7 @@ export function CheckInClient({
       ? focusReservationId
       : initialArrivals[0]?.id ?? null,
   );
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [resultStayId, setResultStayId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -83,7 +107,7 @@ export function CheckInClient({
     () => arrivals.find((a) => a.id === selectedId) ?? null,
     [arrivals, selectedId],
   );
-  const gate = selected ? eligibility(selected) : null;
+  const gate = selected ? eligibility(selected, selectedRoomId) : null;
 
   function refresh() {
     startTransition(async () => {
@@ -94,14 +118,17 @@ export function CheckInClient({
   }
 
   function doCheckIn() {
-    if (!selected || !gate?.ok) return;
+    if (!selected || !gate?.ok || !gate.room) return;
     setError(null);
     setMessage(null);
     startTransition(async () => {
       const res = await fetch("/api/v1/check-in", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reservationId: selected.id }),
+        body: JSON.stringify({
+          reservationId: selected.id,
+          roomId: gate.room!.id,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -125,8 +152,8 @@ export function CheckInClient({
           </p>
           <h1 className="mt-1 text-3xl font-semibold text-ink-900">Check-in guiado</h1>
           <p className="font-ui mt-1 max-w-xl text-sm text-stone-600">
-            Reutiliza o serviço atómico Phase 6. Check-in operacional não publica nem cobra
-            documentos financeiros.
+            Suporta reservas individuais e multi-quarto. O check-in lança automaticamente o
+            alojamento na conta da estadia; documentos fiscais são geridos apenas no SIGESC.
           </p>
         </div>
         <Button type="button" variant="secondary" disabled={pending} onClick={refresh}>
@@ -162,6 +189,10 @@ export function CheckInClient({
               <ul className="divide-y divide-sand-100">
                 {arrivals.map((a) => {
                   const primary = a.guests.find((g) => g.isPrimary) ?? a.guests[0];
+                  const roomSummary =
+                    a.rooms.length > 1
+                      ? `${a.rooms.length} quartos (${(a.stays ?? []).length} em estadia)`
+                      : a.rooms[0]?.room.code ?? "sem quarto";
                   return (
                     <li key={a.id}>
                       <button
@@ -171,6 +202,7 @@ export function CheckInClient({
                         }`}
                         onClick={() => {
                           setSelectedId(a.id);
+                          setSelectedRoomId(null);
                           setStep(1);
                           setResultStayId(null);
                         }}
@@ -181,7 +213,7 @@ export function CheckInClient({
                             : a.code}
                         </p>
                         <p className="font-ui text-xs text-stone-500">
-                          {a.code} · {a.rooms[0]?.room.code ?? "sem quarto"}
+                          {a.code} · {roomSummary}
                         </p>
                       </button>
                     </li>
@@ -223,10 +255,32 @@ export function CheckInClient({
                 <div>
                   <dt className="text-stone-500">Hóspedes / quarto</dt>
                   <dd>
-                    {selected.adults} · {gate.room?.code ?? "—"} ({gate.room?.category.name})
+                    {selected.adults + (selected.children ?? 0)} ({selected.adults} ad.
+                    {selected.children ? `, ${selected.children} cr.` : ""}) ·{" "}
+                    {gate.room?.code ?? "—"} ({gate.room?.category.name})
                   </dd>
                 </div>
               </dl>
+              {selected.rooms.length > 1 ? (
+                <label className="font-ui mt-4 block text-sm">
+                  <span className="text-stone-500">Quarto para este check-in</span>
+                  <select
+                    value={gate.room?.id ?? ""}
+                    onChange={(e) => setSelectedRoomId(e.target.value)}
+                    className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
+                  >
+                    {selected.rooms.map((rr) => {
+                      const alreadyIn = gate.checkedRoomIds.has(rr.room.id);
+                      return (
+                        <option key={rr.room.id} value={rr.room.id} disabled={alreadyIn}>
+                          {rr.room.code} · {rr.room.category.name}
+                          {alreadyIn ? " (já em estadia)" : ` (${rr.room.housekeepingStatus})`}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+              ) : null}
               <div className="mt-3 flex flex-wrap gap-1">
                 <StatusPill value={selected.status} />
                 {gate.room ? <StatusPill value={gate.room.housekeepingStatus} /> : null}

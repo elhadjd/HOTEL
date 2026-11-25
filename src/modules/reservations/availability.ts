@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient, ReservationStatus } from "@prisma/client";
+import { Prisma, type OccupancyStatus, type PrismaClient, type ReservationStatus } from "@prisma/client";
 
 /** Statuses that block room assignment for overlapping dates. */
 export const BLOCKING_RESERVATION_STATUSES: ReservationStatus[] = [
@@ -12,6 +12,12 @@ export type DateRange = { arrival: Date; departure: Date };
 export function toDateOnlyUtc(value: Date | string): Date {
   const d = typeof value === "string" ? new Date(value) : value;
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+export function daysBetweenUtc(arrival: Date, departure: Date): number {
+  const a = toDateOnlyUtc(arrival).getTime();
+  const d = toDateOnlyUtc(departure).getTime();
+  return Math.max(0, Math.round((d - a) / 86_400_000));
 }
 
 export function assertValidStayRange(arrival: Date, departure: Date): void {
@@ -34,7 +40,81 @@ export function rangesOverlap(a: DateRange, b: DateRange): boolean {
   return a.arrival < b.departure && a.departure > b.arrival;
 }
 
+/**
+ * Pure rule separating current physical occupancy from future bookings:
+ * - Active stay on the room => OCCUPIED
+ * - Blocking reservation covering today [arrival <= today < departure] => RESERVED
+ * - Otherwise (including reservations strictly in the future) => AVAILABLE
+ */
+export function deriveOccupancyStatus(params: {
+  hasActiveStay: boolean;
+  hasReservationCoveringToday: boolean;
+}): OccupancyStatus {
+  if (params.hasActiveStay) return "OCCUPIED";
+  if (params.hasReservationCoveringToday) return "RESERVED";
+  return "AVAILABLE";
+}
+
 type Db = PrismaClient | Prisma.TransactionClient;
+
+/**
+ * Acquires InnoDB row-level locks (`SELECT ... FOR UPDATE`) on the target rooms
+ * in deterministic sorted order to prevent concurrent overbooking and deadlocks.
+ */
+export async function lockRoomsForUpdate(
+  tx: Prisma.TransactionClient,
+  roomIds: string[],
+): Promise<void> {
+  const uniqueSorted = [...new Set(roomIds.filter(Boolean))].sort();
+  if (uniqueSorted.length === 0) return;
+  await tx.$queryRaw(
+    Prisma.sql`SELECT id FROM rooms WHERE id IN (${Prisma.join(uniqueSorted)}) FOR UPDATE`,
+  );
+}
+
+/**
+ * Synchronizes `Room.occupancyStatus` strictly from live operational truth
+ * (active stays and reservations covering today), never clobbering current
+ * occupancy with future reservations.
+ */
+export async function syncRoomOccupancyStatus(
+  db: Db,
+  roomId: string,
+  referenceDate: Date = new Date(),
+): Promise<OccupancyStatus> {
+  const today = toDateOnlyUtc(referenceDate);
+
+  const [activeStayCount, todayReservationCount] = await Promise.all([
+    db.stay.count({
+      where: {
+        roomId,
+        status: { in: ["ACTIVE", "CHECKOUT_PENDING"] },
+      },
+    }),
+    db.reservationRoom.count({
+      where: {
+        roomId,
+        arrivalDate: { lte: today },
+        departureDate: { gt: today },
+        reservation: {
+          status: { in: ["PENDING", "CONFIRMED"] },
+        },
+      },
+    }),
+  ]);
+
+  const nextStatus = deriveOccupancyStatus({
+    hasActiveStay: activeStayCount > 0,
+    hasReservationCoveringToday: todayReservationCount > 0,
+  });
+
+  await db.room.update({
+    where: { id: roomId },
+    data: { occupancyStatus: nextStatus },
+  });
+
+  return nextStatus;
+}
 
 export async function findConflictingReservationRooms(
   db: Db,
@@ -71,6 +151,7 @@ export async function assertRoomAssignable(
     arrival: Date;
     departure: Date;
     excludeReservationId?: string;
+    excludeStayId?: string;
   },
 ): Promise<void> {
   const room = await db.room.findUnique({ where: { id: params.roomId } });
@@ -93,9 +174,11 @@ export async function assertRoomAssignable(
     where: {
       roomId: params.roomId,
       status: { in: ["ACTIVE", "CHECKOUT_PENDING"] },
-      ...(params.excludeReservationId
-        ? { reservationId: { not: params.excludeReservationId } }
-        : {}),
+      ...(params.excludeStayId
+        ? { id: { not: params.excludeStayId } }
+        : params.excludeReservationId
+          ? { reservationId: { not: params.excludeReservationId } }
+          : {}),
       actualArrival: { lt: params.departure },
       OR: [
         { actualDeparture: null, expectedDeparture: { gt: params.arrival } },

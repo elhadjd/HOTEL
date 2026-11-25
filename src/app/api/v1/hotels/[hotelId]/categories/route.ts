@@ -13,6 +13,7 @@ const createSchema = z.object({
   maxChildren: z.number().int().min(0).optional(),
   bedConfiguration: z.string().max(255).optional(),
   defaultTariff: z.number().nonnegative().optional(),
+  accommodationMappingId: z.string().uuid().nullable().optional(),
 });
 
 export async function GET(

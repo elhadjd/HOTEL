@@ -470,6 +470,7 @@ model Hotel {
   housekeepingTasks HousekeepingTask[]
   maintenanceReqs   MaintenanceRequest[]
   ratePlans         RatePlan[]
+  nightAuditRuns    NightAuditRun[]
 
   @@unique([institutionId, code])
   @@index([institutionId, active])
@@ -496,27 +497,30 @@ model HotelSettings {
 }
 
 model RoomCategory {
-  id               String   @id @default(uuid())
-  hotelId          String   @map("hotel_id")
-  name             String   @db.VarChar(120)
-  code             String   @db.VarChar(64)
-  description      String?  @db.Text
-  maxOccupancy     Int      @default(2) @map("max_occupancy")
-  maxAdults        Int      @default(2) @map("max_adults")
-  maxChildren      Int      @default(0) @map("max_children")
-  bedConfiguration String?  @map("bed_configuration") @db.VarChar(255)
-  amenitiesJson    Json?    @map("amenities_json")
-  defaultTariff    Decimal? @map("default_tariff") @db.Decimal(14, 2)
-  active           Boolean  @default(true)
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  id                     String   @id @default(uuid())
+  hotelId                String   @map("hotel_id")
+  name                   String   @db.VarChar(120)
+  code                   String   @db.VarChar(64)
+  description            String?  @db.Text
+  maxOccupancy           Int      @default(2) @map("max_occupancy")
+  maxAdults              Int      @default(2) @map("max_adults")
+  maxChildren            Int      @default(0) @map("max_children")
+  bedConfiguration       String?  @map("bed_configuration") @db.VarChar(255)
+  amenitiesJson          Json?    @map("amenities_json")
+  defaultTariff          Decimal? @map("default_tariff") @db.Decimal(14, 2)
+  accommodationMappingId String?  @map("accommodation_mapping_id")
+  active                 Boolean  @default(true)
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
 
-  hotel     Hotel      @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  rooms     Room[]
-  ratePlans RatePlan[]
+  hotel                Hotel                  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  accommodationMapping ProductCatalogMapping? @relation(fields: [accommodationMappingId], references: [id], onDelete: SetNull)
+  rooms                Room[]
+  ratePlans            RatePlan[]
 
   @@unique([hotelId, code])
   @@index([hotelId, active])
+  @@index([accommodationMappingId])
   @@map("room_categories")
 }
 
@@ -586,6 +590,7 @@ model Guest {
   reservationGuests ReservationGuest[]
   stays             Stay[]
   stayCompanions    StayCompanion[]
+  billedFolios      StayFolio[] @relation("FolioPayerGuest")
 
   @@index([institutionId, lastName, firstName])
   @@index([institutionId, email])
@@ -655,7 +660,8 @@ model ProductCatalogMapping {
   createdAt               DateTime    @default(now()) @map("created_at")
   updatedAt               DateTime    @updatedAt @map("updated_at")
 
-  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  institution    Institution    @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  roomCategories RoomCategory[]
 
   @@unique([institutionId, localCode])
   @@index([institutionId, centralProductId])
@@ -752,11 +758,11 @@ model Reservation {
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
 
-  hotel   Hotel              @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  rooms   ReservationRoom[]
-  guests  ReservationGuest[]
-  stay    Stay?
-  events  ReservationEvent[]
+  hotel     Hotel              @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  rooms     ReservationRoom[]
+  guests    ReservationGuest[]
+  stays     Stay[]
+  events    ReservationEvent[]
   checkIns  CheckInRecord[]
   checkOuts CheckOutRecord[]
 
@@ -815,7 +821,7 @@ model Stay {
   id                String     @id @default(uuid())
   hotelId           String     @map("hotel_id")
   institutionId     String     @map("institution_id")
-  reservationId     String     @unique @map("reservation_id")
+  reservationId     String     @map("reservation_id")
   roomId            String     @map("room_id")
   guestId           String     @map("guest_id")
   status            StayStatus @default(ACTIVE)
@@ -837,12 +843,37 @@ model Stay {
   roomHistory  StayRoomHistory[]
   dateChanges  StayDateChange[]
   accountLines StayAccountCharge[]
+  folios       StayFolio[]
 
   @@index([hotelId, status])
   @@index([institutionId, status])
   @@index([roomId, status])
+  @@index([reservationId, status])
+  @@index([reservationId, roomId])
   @@index([institutionId, expectedDeparture])
   @@map("stays")
+}
+
+model StayFolio {
+  id            String    @id @default(uuid())
+  stayId        String    @map("stay_id")
+  institutionId String    @map("institution_id")
+  name          String    @db.VarChar(120)
+  folioType     String    @default("GUEST") @map("folio_type") @db.VarChar(32)
+  payerGuestId  String?   @map("payer_guest_id")
+  depositAmount Decimal   @default(0) @map("deposit_amount") @db.Decimal(14, 2)
+  notes         String?   @db.VarChar(500)
+  closedAt      DateTime? @map("closed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  stay       Stay                @relation(fields: [stayId], references: [id], onDelete: Cascade)
+  payerGuest Guest?              @relation("FolioPayerGuest", fields: [payerGuestId], references: [id], onDelete: SetNull)
+  charges    StayAccountCharge[]
+
+  @@index([stayId])
+  @@index([institutionId, payerGuestId])
+  @@map("stay_folios")
 }
 
 model StayCompanion {
@@ -893,29 +924,61 @@ model StayDateChange {
 }
 
 model StayAccountCharge {
-  id                 String           @id @default(uuid())
-  stayId             String           @map("stay_id")
-  institutionId      String           @map("institution_id")
-  kind               StayChargeKind   @default(EXTRA_SERVICE)
-  status             StayChargeStatus @default(PENDING)
-  description        String           @db.VarChar(255)
-  quantity           Decimal          @default(1) @db.Decimal(12, 3)
+  id                   String           @id @default(uuid())
+  stayId               String           @map("stay_id")
+  folioId              String?          @map("folio_id")
+  institutionId        String           @map("institution_id")
+  kind                 StayChargeKind   @default(EXTRA_SERVICE)
+  status               StayChargeStatus @default(PENDING)
+  description          String           @db.VarChar(255)
+  quantity             Decimal          @default(1) @db.Decimal(12, 3)
   /** Verified central unit price — never browser-authored for mapped products */
-  unitPrice          Decimal          @map("unit_price") @db.Decimal(14, 2)
-  currency           String           @default("AOA") @db.Char(3)
-  catalogMappingId   String?          @map("catalog_mapping_id")
-  centralProductId   String?          @map("central_product_id") @db.VarChar(64)
-  invoiceIntegrationId String?        @map("invoice_integration_id")
-  actorUserId        String?          @map("actor_user_id")
-  voidReason         String?          @map("void_reason") @db.VarChar(500)
-  createdAt          DateTime         @default(now()) @map("created_at")
-  updatedAt          DateTime         @updatedAt @map("updated_at")
+  unitPrice            Decimal          @map("unit_price") @db.Decimal(14, 2)
+  currency             String           @default("AOA") @db.Char(3)
+  catalogMappingId     String?          @map("catalog_mapping_id")
+  centralProductId     String?          @map("central_product_id") @db.VarChar(64)
+  invoiceIntegrationId String?          @map("invoice_integration_id")
+  actorUserId          String?          @map("actor_user_id")
+  voidReason           String?          @map("void_reason") @db.VarChar(500)
+  createdAt            DateTime         @default(now()) @map("created_at")
+  updatedAt            DateTime         @updatedAt @map("updated_at")
 
-  stay Stay @relation(fields: [stayId], references: [id], onDelete: Cascade)
+  stay  Stay       @relation(fields: [stayId], references: [id], onDelete: Cascade)
+  folio StayFolio? @relation(fields: [folioId], references: [id], onDelete: SetNull)
 
   @@index([stayId, status])
+  @@index([folioId])
   @@index([institutionId, createdAt])
   @@map("stay_account_charges")
+}
+
+model NightAuditRun {
+  id                   String   @id @default(uuid())
+  institutionId        String   @map("institution_id")
+  hotelId              String   @map("hotel_id")
+  businessDate         DateTime @map("business_date") @db.Date
+  status               String   @default("COMPLETED") @db.VarChar(32)
+  actorUserId          String?  @map("actor_user_id")
+  totalRooms           Int      @default(0) @map("total_rooms")
+  sellableRooms        Int      @default(0) @map("sellable_rooms")
+  occupiedRooms        Int      @default(0) @map("occupied_rooms")
+  occupancyPercent     Decimal  @default(0) @map("occupancy_percent") @db.Decimal(6, 2)
+  accommodationRevenue Decimal  @default(0) @map("accommodation_revenue") @db.Decimal(14, 2)
+  extrasRevenue        Decimal  @default(0) @map("extras_revenue") @db.Decimal(14, 2)
+  adr                  Decimal  @default(0) @db.Decimal(14, 2)
+  revpar               Decimal  @default(0) @db.Decimal(14, 2)
+  noShowsMarked        Int      @default(0) @map("no_shows_marked")
+  staysAudited         Int      @default(0) @map("stays_audited")
+  reconciliationAlerts Int      @default(0) @map("reconciliation_alerts")
+  currency             String   @default("AOA") @db.Char(3)
+  summaryJson          Json?    @map("summary_json")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  hotel Hotel @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  @@unique([hotelId, businessDate])
+  @@index([institutionId, businessDate])
+  @@map("night_audit_runs")
 }
 
 model CheckInRecord {

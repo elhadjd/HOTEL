@@ -356,41 +356,50 @@ export type NightQuote = {
   reason: string;
 };
 
+export type QuoteRatePlanInput = {
+  id: string;
+  code: string;
+  name: string;
+  baseAmount: number | Prisma.Decimal;
+  currency: string;
+  weekdayOnly: boolean;
+  weekendOnly: boolean;
+  validFrom: Date | null;
+  validTo: Date | null;
+  minStayNights: number;
+  maxStayNights: number | null;
+  includedOccupancy: number;
+  extraGuestAmount: number | Prisma.Decimal | null;
+  priority: number;
+  seasonals: Array<{
+    name: string;
+    startDate: Date;
+    endDate: Date;
+    amount: number | Prisma.Decimal;
+    minOccupancy: number | null;
+    weekendOnly: boolean;
+    weekdayOnly: boolean;
+  }>;
+};
+
 /**
- * Resolve accommodation amount for a stay range.
- * Selection order for each night:
- * 1. Active plans for hotel+category covering validity
- * 2. Match weekday/weekend constraints
- * 3. Prefer highest priority, then highest base amount as tie-break
- * 4. Seasonal override when date falls in a matching seasonal window
- * Extra guests beyond includedOccupancy add extraGuestAmount per night.
+ * Pure accommodation quote engine — evaluates active plans night-by-night,
+ * enforces `SeasonalRate.minOccupancy`, extra-guest fees, and min/max stay nights.
  */
-export async function quoteAccommodation(
-  prisma: PrismaClient,
-  ctx: TenantContext,
+export function computeAccommodationQuote(
+  plans: QuoteRatePlanInput[],
   input: {
-    hotelId: string;
-    categoryId: string;
-    arrivalDate: string | Date;
-    departureDate: string | Date;
+    arrival: Date;
+    departure: Date;
     occupants?: number;
   },
 ) {
-  await assertHotel(prisma, ctx, input.hotelId);
-  const arrival = toDateOnlyUtc(input.arrivalDate);
-  const departure = toDateOnlyUtc(input.departureDate);
+  const { arrival, departure } = input;
   if (departure <= arrival) throw new Error("Departure must be after arrival");
-
-  const plans = await prisma.ratePlan.findMany({
-    where: {
-      hotelId: input.hotelId,
-      categoryId: input.categoryId,
-      active: true,
-      hotel: { institutionId: ctx.institutionId },
-    },
-    include: { seasonals: true },
-    orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
-  });
+  const totalNights = Math.round((departure.getTime() - arrival.getTime()) / 86_400_000);
+  if (totalNights > 366) {
+    throw new Error("Accommodation quote cannot exceed 366 nights");
+  }
 
   const nights: NightQuote[] = [];
   const cursor = new Date(arrival);
@@ -410,14 +419,15 @@ export async function quoteAccommodation(
       );
     }
     const plan = candidates[0]!;
+    const occupants = input.occupants ?? plan.includedOccupancy;
     const seasonal = plan.seasonals.find((s) => {
       if (day < s.startDate || day > s.endDate) return false;
       if (s.weekdayOnly && weekend) return false;
       if (s.weekendOnly && !weekend) return false;
+      if (s.minOccupancy != null && occupants < s.minOccupancy) return false;
       return true;
     });
     let amount = seasonal ? Number(seasonal.amount) : Number(plan.baseAmount);
-    const occupants = input.occupants ?? plan.includedOccupancy;
     const extras = Math.max(0, occupants - plan.includedOccupancy);
     if (extras > 0 && plan.extraGuestAmount != null) {
       amount += extras * Number(plan.extraGuestAmount);
@@ -438,23 +448,77 @@ export async function quoteAccommodation(
   }
 
   const stayNights = nights.length;
-  const matchingPlan = plans.find((p) => p.id === nights[0]?.ratePlanId);
-  if (matchingPlan && stayNights < matchingPlan.minStayNights) {
-    throw new Error(`Minimum stay is ${matchingPlan.minStayNights} night(s)`);
-  }
-  if (
-    matchingPlan?.maxStayNights != null &&
-    stayNights > matchingPlan.maxStayNights
-  ) {
-    throw new Error(`Maximum stay is ${matchingPlan.maxStayNights} night(s)`);
+  const usedPlanIds = [...new Set(nights.map((n) => n.ratePlanId))];
+  for (const planId of usedPlanIds) {
+    const usedPlan = plans.find((p) => p.id === planId);
+    if (!usedPlan) continue;
+    if (stayNights < usedPlan.minStayNights) {
+      throw new Error(`Minimum stay is ${usedPlan.minStayNights} night(s)`);
+    }
+    if (usedPlan.maxStayNights != null && stayNights > usedPlan.maxStayNights) {
+      throw new Error(`Maximum stay is ${usedPlan.maxStayNights} night(s)`);
+    }
   }
 
+  const primaryPlan = plans.find((p) => p.id === nights[0]?.ratePlanId);
   const subtotal = Number(nights.reduce((s, n) => s + n.amount, 0).toFixed(2));
   return {
-    currency: matchingPlan?.currency ?? "AOA",
+    currency: primaryPlan?.currency ?? "AOA",
     nights,
     nightCount: stayNights,
     subtotal,
     note: "Operational accommodation quote — not a SIGESC fiscal document",
   };
+}
+
+type Db = PrismaClient | Prisma.TransactionClient;
+
+/**
+ * Resolve accommodation amount for a stay range.
+ * Selection order for each night:
+ * 1. Active plans for hotel+category covering validity
+ * 2. Match weekday/weekend constraints
+ * 3. Prefer highest priority, then most recently updated as tie-break
+ * 4. Seasonal override when date falls in a matching seasonal window and satisfies minOccupancy
+ * Extra guests beyond includedOccupancy add extraGuestAmount per night.
+ */
+export async function quoteAccommodation(
+  prisma: Db,
+  ctx: TenantContext,
+  input: {
+    hotelId: string;
+    categoryId: string;
+    arrivalDate: string | Date;
+    departureDate: string | Date;
+    occupants?: number;
+  },
+) {
+  const hotel = await prisma.hotel.findUnique({ where: { id: input.hotelId } });
+  if (!hotel) throw new Error("Hotel not found");
+  assertSameInstitution(ctx, hotel.institutionId);
+
+  const arrival = toDateOnlyUtc(input.arrivalDate);
+  const departure = toDateOnlyUtc(input.departureDate);
+  if (departure <= arrival) throw new Error("Departure must be after arrival");
+  const totalNights = Math.round((departure.getTime() - arrival.getTime()) / 86_400_000);
+  if (totalNights > 366) {
+    throw new Error("Accommodation quote cannot exceed 366 nights");
+  }
+
+  const plans = await prisma.ratePlan.findMany({
+    where: {
+      hotelId: input.hotelId,
+      categoryId: input.categoryId,
+      active: true,
+      hotel: { institutionId: ctx.institutionId },
+    },
+    include: { seasonals: true },
+    orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
+  });
+
+  return computeAccommodationQuote(plans, {
+    arrival,
+    departure,
+    occupants: input.occupants,
+  });
 }
