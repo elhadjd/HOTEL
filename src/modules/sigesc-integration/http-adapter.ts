@@ -1,6 +1,7 @@
 import type { AggregatePort } from "./port";
 import { resolveValidatedAggregateHost } from "./host-allowlist";
 import { redactSecrets, safeErrorMessage } from "./sanitize";
+import { createRequestId, getRequestId, logger } from "@/server/logger";
 import type {
   AggregateCustomer,
   AggregateCustomerMutationResult,
@@ -24,6 +25,37 @@ import type {
 import { AggregateApiError } from "./types";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+
+function assertNumericSegment(raw: number | string, label: string): string {
+  const s = String(raw).trim();
+  if (!/^\d+$/.test(s)) {
+    throw new AggregateApiError(`Invalid ${label} identifier`, 400, 400);
+  }
+  return encodeURIComponent(s);
+}
+
+function assertSaleKeySegment(raw: string): string {
+  const s = String(raw).trim();
+  if (!/^(?:[a-zA-Z0-9_-]+-)?\d+$/.test(s) || s.includes("..")) {
+    throw new AggregateApiError("Invalid sale_key identifier", 400, 400);
+  }
+  return encodeURIComponent(s);
+}
+
+function extractAggregateErrorMessage(
+  body: (AggregateEnvelope<unknown> & { errors?: Record<string, string[] | string> }) | null,
+  status: number,
+): string {
+  const base = body?.error?.message ?? `Aggregate API error (${status})`;
+  if (body?.errors && typeof body.errors === "object") {
+    const details = Object.entries(body.errors)
+      .map(([field, msgs]) => `${field}: ${Array.isArray(msgs) ? msgs.join(", ") : String(msgs)}`)
+      .filter(Boolean)
+      .join("; ");
+    if (details) return redactSecrets(`${base} (${details})`);
+  }
+  return redactSecrets(base);
+}
 
 /**
  * HTTP client for documented Aggregate endpoints only.
@@ -60,9 +92,12 @@ export class HttpAggregateAdapter implements AggregatePort {
       }
     }
 
+    const requestId = getRequestId() ?? createRequestId();
+    const startedAt = Date.now();
     const headers: Record<string, string> = {
       Authorization: `Bearer ${apiKey}`,
       Accept: "application/json",
+      "X-Request-Id": requestId,
     };
     if (options?.body !== undefined) headers["Content-Type"] = "application/json";
 
@@ -77,6 +112,14 @@ export class HttpAggregateAdapter implements AggregatePort {
       });
     } catch (err) {
       const name = err instanceof Error ? err.name : "";
+      const latencyMs = Date.now() - startedAt;
+      logger.error("sigesc.http.network_error", {
+        requestId,
+        method,
+        path,
+        latencyMs,
+        errorName: name || "unknown",
+      });
       if (name === "TimeoutError" || name === "AbortError") {
         throw new AggregateApiError("SIGESC Aggregate request timed out", 504, 504);
       }
@@ -87,21 +130,48 @@ export class HttpAggregateAdapter implements AggregatePort {
       );
     }
 
-    let body: AggregateEnvelope<T> | null = null;
+    let body: (AggregateEnvelope<T> & { errors?: Record<string, string[] | string> }) | null = null;
     try {
-      body = (await res.json()) as AggregateEnvelope<T>;
+      body = (await res.json()) as AggregateEnvelope<T> & {
+        errors?: Record<string, string[] | string>;
+      };
     } catch {
+      logger.error("sigesc.http.invalid_json", {
+        requestId,
+        method,
+        path,
+        status: res.status,
+        latencyMs: Date.now() - startedAt,
+      });
       throw new AggregateApiError("Invalid JSON response from SIGESC Aggregate", 502, 502);
     }
 
+    const latencyMs = Date.now() - startedAt;
     const okStatuses = options?.okStatuses ?? [200, 201];
     if (!okStatuses.includes(res.status) || !body?.success) {
-      const raw = body?.error?.message ?? `Aggregate API error (${res.status})`;
-      throw new AggregateApiError(redactSecrets(raw), res.status, body?.error?.code ?? res.status);
+      logger.warn("sigesc.http.error_response", {
+        requestId,
+        method,
+        path,
+        status: res.status,
+        latencyMs,
+      });
+      throw new AggregateApiError(
+        extractAggregateErrorMessage(body, res.status),
+        res.status,
+        body?.error?.code ?? res.status,
+      );
     }
     if (body.data === undefined) {
       throw new AggregateApiError("Invalid Aggregate envelope (missing data)", 502, 502);
     }
+    logger.info("sigesc.http.completed", {
+      requestId,
+      method,
+      path,
+      status: res.status,
+      latencyMs,
+    });
     if (options?.returnStatus) {
       return { httpStatus: res.status, data: body.data };
     }
@@ -119,16 +189,29 @@ export class HttpAggregateAdapter implements AggregatePort {
         if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
       }
     }
+    const requestId = getRequestId() ?? createRequestId();
+    const startedAt = Date.now();
     let res: Response;
     try {
       res = await fetch(url.toString(), {
         method: "GET",
-        headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Accept: "application/json",
+          "X-Request-Id": requestId,
+        },
         cache: "no-store",
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (err) {
       const name = err instanceof Error ? err.name : "";
+      logger.error("sigesc.http.network_error", {
+        requestId,
+        method: "GET",
+        path,
+        latencyMs: Date.now() - startedAt,
+        errorName: name || "unknown",
+      });
       if (name === "TimeoutError" || name === "AbortError") {
         throw new AggregateApiError("SIGESC Aggregate request timed out", 504, 504);
       }
@@ -138,16 +221,39 @@ export class HttpAggregateAdapter implements AggregatePort {
         503,
       );
     }
-    let body: AggregateEnvelope<T> | null = null;
+    let body: (AggregateEnvelope<T> & { errors?: Record<string, string[] | string> }) | null = null;
     try {
-      body = (await res.json()) as AggregateEnvelope<T>;
+      body = (await res.json()) as AggregateEnvelope<T> & {
+        errors?: Record<string, string[] | string>;
+      };
     } catch {
       throw new AggregateApiError("Invalid JSON response from SIGESC Aggregate", 502, 502);
     }
+    const latencyMs = Date.now() - startedAt;
     if (!res.ok || !body?.success) {
-      const raw = body?.error?.message ?? `Aggregate API error (${res.status})`;
-      throw new AggregateApiError(redactSecrets(raw), res.status, body?.error?.code ?? res.status);
+      logger.warn("sigesc.http.error_response", {
+        requestId,
+        method: "GET",
+        path,
+        status: res.status,
+        latencyMs,
+      });
+      throw new AggregateApiError(
+        extractAggregateErrorMessage(body, res.status),
+        res.status,
+        body?.error?.code ?? res.status,
+      );
     }
+    if (body.data === undefined) {
+      throw new AggregateApiError("Invalid Aggregate envelope (missing data)", 502, 502);
+    }
+    logger.info("sigesc.http.completed", {
+      requestId,
+      method: "GET",
+      path,
+      status: res.status,
+      latencyMs,
+    });
     return body;
   }
 
@@ -186,7 +292,8 @@ export class HttpAggregateAdapter implements AggregatePort {
     id: number | string,
     query?: { company_id?: number | string },
   ): Promise<AggregateCustomer> {
-    return this.requestJson<AggregateCustomer>(apiKey, "GET", `/customers/${id}`, {
+    const safeId = assertNumericSegment(id, "customer");
+    return this.requestJson<AggregateCustomer>(apiKey, "GET", `/customers/${safeId}`, {
       searchParams: { company_id: query?.company_id },
     }) as Promise<AggregateCustomer>;
   }
@@ -206,7 +313,8 @@ export class HttpAggregateAdapter implements AggregatePort {
     id: number | string,
     body: AggregateCustomerWriteInput,
   ): Promise<AggregateCustomerMutationResult> {
-    return this.requestJson<AggregateCustomerMutationResult>(apiKey, "PATCH", `/customers/${id}`, {
+    const safeId = assertNumericSegment(id, "customer");
+    return this.requestJson<AggregateCustomerMutationResult>(apiKey, "PATCH", `/customers/${safeId}`, {
       body,
       okStatuses: [200],
     }) as Promise<AggregateCustomerMutationResult>;
@@ -228,7 +336,8 @@ export class HttpAggregateAdapter implements AggregatePort {
     id: number | string,
     query?: { company_id?: number | string },
   ): Promise<AggregateProduct> {
-    return this.requestJson<AggregateProduct>(apiKey, "GET", `/products/${id}`, {
+    const safeId = assertNumericSegment(id, "product");
+    return this.requestJson<AggregateProduct>(apiKey, "GET", `/products/${safeId}`, {
       searchParams: { company_id: query?.company_id },
     }) as Promise<AggregateProduct>;
   }
@@ -248,7 +357,8 @@ export class HttpAggregateAdapter implements AggregatePort {
     id: number | string,
     body: AggregateProductWriteInput,
   ): Promise<AggregateProductMutationResult> {
-    return this.requestJson<AggregateProductMutationResult>(apiKey, "PATCH", `/products/${id}`, {
+    const safeId = assertNumericSegment(id, "product");
+    return this.requestJson<AggregateProductMutationResult>(apiKey, "PATCH", `/products/${safeId}`, {
       body,
       okStatuses: [200],
     }) as Promise<AggregateProductMutationResult>;
@@ -263,11 +373,28 @@ export class HttpAggregateAdapter implements AggregatePort {
       okStatuses: [200, 201],
       returnStatus: true,
     })) as { httpStatus: number; data: AggregateSaleMutationResult };
+    if (!wrapped.data?.sale?.sale_key) {
+      throw new AggregateApiError(
+        "Invalid Aggregate response from POST /sales (missing sale.sale_key)",
+        502,
+        502,
+      );
+    }
     return { httpStatus: wrapped.httpStatus, result: wrapped.data };
   }
 
   async getSale(apiKey: string, saleKey: string): Promise<AggregateSale> {
-    return this.requestJson<AggregateSale>(apiKey, "GET", `/sales/${saleKey}`) as Promise<AggregateSale>;
+    const safeKey = assertSaleKeySegment(saleKey);
+    const raw = (await this.requestJson<AggregateSale | { sale: AggregateSale }>(
+      apiKey,
+      "GET",
+      `/sales/${safeKey}`,
+    )) as AggregateSale | { sale: AggregateSale };
+    const sale = "sale" in raw && raw.sale ? raw.sale : (raw as AggregateSale);
+    if (!sale?.sale_key) {
+      throw new AggregateApiError("Invalid Aggregate response from GET /sales/{sale_key}", 502, 502);
+    }
+    return sale;
   }
 
   async listSales(
@@ -286,9 +413,28 @@ export class HttpAggregateAdapter implements AggregatePort {
     saleKey: string,
     items: AggregateSaleItemInput[],
   ): Promise<AggregateSale> {
-    return this.requestJson<AggregateSale>(apiKey, "POST", `/sales/${saleKey}/items`, {
-      body: { items },
-      okStatuses: [200, 201],
-    }) as Promise<AggregateSale>;
+    const safeKey = assertSaleKeySegment(saleKey);
+    const raw = (await this.requestJson<AggregateSale | { sale: AggregateSale }>(
+      apiKey,
+      "POST",
+      `/sales/${safeKey}/items`,
+      {
+        body: { items },
+        okStatuses: [200, 201],
+      },
+    )) as AggregateSale | { sale: AggregateSale };
+    const sale = "sale" in raw && raw.sale ? raw.sale : (raw as AggregateSale);
+    if (!sale?.sale_key || !sale?.state) {
+      throw new AggregateApiError(
+        "Invalid Aggregate response from POST /sales/{sale_key}/items",
+        502,
+        502,
+      );
+    }
+    return sale;
+  }
+
+  async fetchMe(apiKey: string): Promise<unknown> {
+    return this.requestJson<unknown>(apiKey, "GET", "/me");
   }
 }

@@ -144,7 +144,7 @@ describe.runIf(hasDb)("Phase 2 onboarding + auth integration", () => {
     expect(updated.passwordHash).not.toBe(previousHash);
   });
 
-  it("password recovery reports missing email, sends when found, single-use", async () => {
+  it("password recovery avoids account enumeration, sends when found, single-use", async () => {
     const preview = await validateOnboardingKey(prisma, MOCK_VALID_MCA_KEY);
     await confirmOnboardingChallenge(prisma, preview.challengeToken);
     await changePasswordMandatory(
@@ -154,13 +154,11 @@ describe.runIf(hasDb)("Phase 2 onboarding + auth integration", () => {
     );
 
     const unknown = await requestPasswordReset(prisma, "nobody@example.com");
-    expect(unknown.found).toBe(false);
     expect(unknown.message).toBe(EMAIL_NOT_FOUND_MESSAGE);
 
     const known = await requestPasswordReset(prisma, "sofia@baia.ao");
-    expect(known.found).toBe(true);
     expect(known.message).toBe(EMAIL_SENT_MESSAGE);
-    expect(unknown.message).not.toBe(known.message);
+    expect(unknown.message).toBe(known.message);
 
     const tokenRow = await prisma.passwordResetToken.findFirstOrThrow({
       where: { usedAt: null },

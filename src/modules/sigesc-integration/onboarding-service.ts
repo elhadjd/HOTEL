@@ -202,6 +202,15 @@ export async function confirmOnboardingChallenge(
 
   const result = await prisma.$transaction(
     async (tx) => {
+      // Atomic single-use claim prevents TOCTOU race conditions on concurrent confirm calls.
+      const claimed = await tx.onboardingChallenge.updateMany({
+        where: { id: challenge.id, consumedAt: null },
+        data: { consumedAt: new Date() },
+      });
+      if (claimed.count !== 1) {
+        throw new AggregateApiError("Invalid or already used onboarding challenge", 400, 400);
+      }
+
       const existingInstitution = await tx.institution.findFirst({
         where: { sigescCompanyRef: externalId },
       });
@@ -236,7 +245,7 @@ export async function confirmOnboardingChallenge(
 
         await tx.onboardingChallenge.update({
           where: { id: challenge.id },
-          data: { consumedAt: new Date(), institutionId: existingInstitution.id },
+          data: { institutionId: existingInstitution.id },
         });
 
         await tx.auditLog.create({
@@ -271,12 +280,25 @@ export async function confirmOnboardingChallenge(
       const existingUsers = allEmails.length
         ? await tx.user.findMany({
             where: { email: { in: allEmails } },
-            select: { id: true, email: true },
+            select: {
+              id: true,
+              email: true,
+              externalId: true,
+              invitePending: true,
+              passwordChangedAt: true,
+            },
           })
         : [];
-      const userByEmail = new Map<string, { id: string; email: string }>(
-        existingUsers.map((u) => [u.email, u]),
-      );
+      const userByEmail = new Map<
+        string,
+        {
+          id: string;
+          email: string;
+          externalId: string | null;
+          invitePending: boolean;
+          passwordChangedAt: Date | null;
+        }
+      >(existingUsers.map((u) => [u.email, u]));
 
       const existingMemberships = await tx.membership.findMany({
         where: { institutionId: institution.id },
@@ -289,6 +311,7 @@ export async function confirmOnboardingChallenge(
 
       let usersUpserted = 0;
       let adminUserId: string | null = null;
+      let adminIssuedTempPassword = false;
 
       for (const user of allRemoteUsers) {
         const isAdmin =
@@ -304,7 +327,10 @@ export async function confirmOnboardingChallenge(
         });
 
         usersUpserted += 1;
-        if (isAdmin) adminUserId = created.userId;
+        if (isAdmin) {
+          adminUserId = created.userId;
+          adminIssuedTempPassword = created.issuedTemporaryPassword;
+        }
       }
 
       if (!adminUserId) {
@@ -366,22 +392,24 @@ export async function confirmOnboardingChallenge(
         },
       });
 
-      await enqueueEmail(tx, {
-        institutionId: institution.id,
-        userId: adminUserId,
-        template: "ONBOARDING_TEMP_PASSWORD",
-        toEmail: adminEmail,
-        subject: "SIGESC Hotelaria — Conta institucional criada",
-        payloadJson: {
-          toName:
-            admin.full_name?.trim() ||
-            [admin.name, admin.surname].filter(Boolean).join(" ").trim() ||
-            adminEmail,
-          institutionName: company.name,
-          locale: company.language || "pt",
-        },
-        plaintextSecret: temporaryPassword,
-      });
+      if (adminIssuedTempPassword) {
+        await enqueueEmail(tx, {
+          institutionId: institution.id,
+          userId: adminUserId,
+          template: "ONBOARDING_TEMP_PASSWORD",
+          toEmail: adminEmail,
+          subject: "SIGESC Hotelaria — Conta institucional criada",
+          payloadJson: {
+            toName:
+              admin.full_name?.trim() ||
+              [admin.name, admin.surname].filter(Boolean).join(" ").trim() ||
+              adminEmail,
+            institutionName: company.name,
+            locale: company.language || "pt",
+          },
+          plaintextSecret: temporaryPassword,
+        });
+      }
 
       await tx.aggregateSyncRun.create({
         data: {
@@ -417,7 +445,7 @@ export async function confirmOnboardingChallenge(
 
       await tx.onboardingChallenge.update({
         where: { id: challenge.id },
-        data: { consumedAt: new Date(), institutionId: institution.id },
+        data: { institutionId: institution.id },
       });
 
       return {
@@ -430,7 +458,7 @@ export async function confirmOnboardingChallenge(
           adminEmail,
         usersUpserted,
         keyPrefix,
-        emailQueued: true,
+        emailQueued: adminIssuedTempPassword,
         alreadyExisted: false,
       } satisfies ConfirmOnboardingResult;
     },
@@ -480,7 +508,16 @@ async function upsertImportedUserBatched(
     isOfficialAdmin: boolean;
     temporaryPasswordHash?: string;
     temporaryPasswordExpiresAt?: Date;
-    userByEmail: Map<string, { id: string; email: string }>;
+    userByEmail: Map<
+      string,
+      {
+        id: string;
+        email: string;
+        externalId: string | null;
+        invitePending: boolean;
+        passwordChangedAt: Date | null;
+      }
+    >;
     membershipByUserId: Map<
       string,
       { userId: string; roleId: string; status: MembershipStatus }
@@ -503,27 +540,55 @@ async function upsertImportedUserBatched(
   const existing = options.userByEmail.get(email);
 
   let user: { id: string };
+  let issuedTemporaryPassword = false;
   if (existing) {
-    user = await prisma.user.update({
-      where: { id: existing.id },
-      data: {
-        name: displayName,
+    // Security (S2): If this email already belongs to an established active user
+    // (e.g., from another tenant), NEVER overwrite passwordHash, mustChangePassword,
+    // invitePending, or sessionVersion — just link the new institution membership.
+    const isEstablishedUser = !existing.invitePending || existing.passwordChangedAt != null;
+    if (isEstablishedUser) {
+      if (!existing.externalId) {
+        user = await prisma.user.update({
+          where: { id: existing.id },
+          data: { externalId },
+          select: { id: true },
+        });
+        options.userByEmail.set(email, { ...existing, externalId });
+      } else {
+        user = { id: existing.id };
+      }
+    } else if (options.isOfficialAdmin && options.temporaryPasswordHash) {
+      user = await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          name: displayName,
+          externalId,
+          passwordHash: options.temporaryPasswordHash,
+          mustChangePassword: true,
+          temporaryPasswordExpiresAt: options.temporaryPasswordExpiresAt,
+          isInstitutionAdmin: true,
+          invitePending: false,
+          sessionVersion: { increment: 1 },
+        },
+        select: { id: true },
+      });
+      issuedTemporaryPassword = true;
+      options.userByEmail.set(email, {
+        ...existing,
         externalId,
-        ...(options.isOfficialAdmin && options.temporaryPasswordHash
-          ? {
-              passwordHash: options.temporaryPasswordHash,
-              mustChangePassword: true,
-              temporaryPasswordExpiresAt: options.temporaryPasswordExpiresAt,
-              isInstitutionAdmin: true,
-              invitePending: false,
-              sessionVersion: { increment: 1 },
-            }
-          : {
-              invitePending: true,
-            }),
-      },
-      select: { id: true },
-    });
+        invitePending: false,
+      });
+    } else {
+      user = await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          name: displayName,
+          externalId,
+        },
+        select: { id: true },
+      });
+      options.userByEmail.set(email, { ...existing, externalId });
+    }
   } else {
     const passwordHash =
       options.temporaryPasswordHash ?? (await hashPassword(generateOpaqueToken(24)));
@@ -541,8 +606,15 @@ async function upsertImportedUserBatched(
       },
       select: { id: true },
     });
+    issuedTemporaryPassword = Boolean(options.isOfficialAdmin && options.temporaryPasswordHash);
     // Registra no Map para evitar duplicidade caso o mesmo email apareça em outra company
-    options.userByEmail.set(email, { id: user.id, email });
+    options.userByEmail.set(email, {
+      id: user.id,
+      email,
+      externalId,
+      invitePending: !options.isOfficialAdmin,
+      passwordChangedAt: null,
+    });
   }
 
   const existingMembership = options.membershipByUserId.get(user.id);
@@ -603,7 +675,7 @@ async function upsertImportedUserBatched(
     update: { remoteId: externalId },
   });
 
-  return { userId: user.id };
+  return { userId: user.id, issuedTemporaryPassword };
 }
 
 /** @deprecated Prefer validate + confirm two-step flow */

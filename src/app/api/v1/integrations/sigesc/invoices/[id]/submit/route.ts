@@ -13,7 +13,19 @@ export async function POST(
   const { id } = await context.params;
   try {
     const invoice = await submitInvoice(prisma, authz.ctx, id);
-    return NextResponse.json({ invoice });
+    if (invoice.status === "RECONCILIATION_REQUIRED") {
+      return NextResponse.json(
+        {
+          invoice,
+          reconciliationRequired: true,
+          warning:
+            invoice.lastError ??
+            "SIGESC submission timed out or was unavailable. Reconcile before assuming the document exists.",
+        },
+        { status: 202 },
+      );
+    }
+    return NextResponse.json({ invoice, reconciliationRequired: false });
   } catch (err) {
     const mapped = mapAggregateError(err);
     return NextResponse.json({ error: mapped.message }, { status: mapped.status });

@@ -36,6 +36,12 @@ export function getEnv(): AppEnv {
   if (parsed.data.NODE_ENV === "production" && !parsed.data.AGGREGATE_ENCRYPTION_KEY) {
     throw new Error("AGGREGATE_ENCRYPTION_KEY is required in production");
   }
+  if (parsed.data.NODE_ENV === "production" && parsed.data.SIGESC_AGGREGATE_MODE !== "http") {
+    throw new Error('SIGESC_AGGREGATE_MODE must be "http" in production (mock mode is forbidden)');
+  }
+  if (parsed.data.NODE_ENV === "production" && parsed.data.EMAIL_MODE !== "smtp") {
+    throw new Error('EMAIL_MODE must be "smtp" in production (mock mode is forbidden)');
+  }
   cached = parsed.data;
   return cached;
 }

@@ -1,10 +1,29 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
+
 type LogLevel = "debug" | "info" | "warn" | "error";
 
+const requestContext = new AsyncLocalStorage<{ requestId: string }>();
+
+export function createRequestId(): string {
+  return `req_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+}
+
+export function getRequestId(): string | undefined {
+  return requestContext.getStore()?.requestId;
+}
+
+export function withRequestId<T>(requestId: string, fn: () => T): T {
+  return requestContext.run({ requestId }, fn);
+}
+
 function emit(level: LogLevel, message: string, meta?: Record<string, unknown>) {
+  const requestId = getRequestId();
   const entry = {
     ts: new Date().toISOString(),
     level,
     message,
+    ...(requestId ? { requestId } : {}),
     ...(meta ? { meta } : {}),
   };
   const line = JSON.stringify(entry);

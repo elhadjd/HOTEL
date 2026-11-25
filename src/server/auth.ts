@@ -4,6 +4,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { z } from "zod";
 import { prisma } from "@/server/db";
 import { verifyPassword } from "@/modules/auth/password";
+import { enforceRateLimit, RateLimitError } from "@/modules/auth/rate-limit";
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -29,6 +30,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const parsed = credentialsSchema.safeParse(raw);
         if (!parsed.success) return null;
         const email = parsed.data.email.trim().toLowerCase();
+
+        try {
+          await enforceRateLimit({
+            bucketKey: `login:${email}`,
+            limit: 10,
+            windowMs: 15 * 60_000,
+          });
+        } catch (err) {
+          if (err instanceof RateLimitError) return null;
+        }
+
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user || !user.active) return null;
 
@@ -68,7 +80,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user, trigger }) {
+    async jwt({ token, user }) {
       if (user) {
         token.sub = user.id;
         token.mustChangePassword = Boolean(
@@ -92,16 +104,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         return { ...token, sub: undefined };
       }
 
-      // After password change the client calls session.update() — adopt the new
-      // sessionVersion instead of treating this device as revoked.
-      if (trigger === "update") {
-        token.mustChangePassword = dbUser.mustChangePassword;
-        token.sessionVersion = dbUser.sessionVersion;
-        return token;
-      }
-
+      // Always enforce sessionVersion strictly — never let a client-triggered
+      // session update resurrect a revoked JWT after password reset/role change.
       if (
-        typeof token.sessionVersion === "number" &&
+        typeof token.sessionVersion !== "number" ||
         dbUser.sessionVersion !== token.sessionVersion
       ) {
         return { ...token, sub: undefined };

@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import createMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
 import { getAuthSessionToken } from "./server/auth-session-token";
+import { safeCallbackPath } from "./shared/safe-redirect";
 
 const intlMiddleware = createMiddleware(routing);
 
@@ -26,15 +27,13 @@ function localePrefix(pathname: string): string {
   return match ? `/${match[1]}` : "";
 }
 
-function safeCallbackPath(raw: string | null): string | null {
-  if (!raw) return null;
-  if (!raw.startsWith("/") || raw.startsWith("//")) return null;
-  if (raw.startsWith("/login") || raw.startsWith("/api")) return null;
-  return raw;
-}
-
 export default async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const requestId =
+    request.headers.get("x-request-id")?.trim() ||
+    (typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? `req_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`
+      : `req_${Date.now()}`);
 
   // Let API / static / public files (css, ico, txt, …) bypass intl/auth.
   // Without this, `/hotelaria-app.css` or `/robots.txt` can match `[locale]`.
@@ -43,7 +42,11 @@ export default async function middleware(request: NextRequest) {
     pathname.startsWith("/_next") ||
     /\.[a-zA-Z0-9]+$/.test(pathname)
   ) {
-    return NextResponse.next();
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-request-id", requestId);
+    const res = NextResponse.next({ request: { headers: requestHeaders } });
+    res.headers.set("x-request-id", requestId);
+    return res;
   }
 
   const path = stripLocale(pathname);
@@ -67,15 +70,21 @@ export default async function middleware(request: NextRequest) {
   if (!token?.sub && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = `${prefix}/login`;
-    url.searchParams.set("callbackUrl", pathname);
+    url.searchParams.set("callbackUrl", `${pathname}${request.nextUrl.search}`);
     return NextResponse.redirect(url);
   }
 
   if (token?.sub && !mustChange && (path === "/login" || path === "/set-password")) {
     const url = request.nextUrl.clone();
     const callback = safeCallbackPath(url.searchParams.get("callbackUrl"));
-    url.pathname = callback ?? `${prefix}/dashboard`;
-    url.search = "";
+    if (callback) {
+      const target = new URL(callback, url.origin);
+      url.pathname = target.pathname;
+      url.search = target.search;
+    } else {
+      url.pathname = `${prefix}/dashboard`;
+      url.search = "";
+    }
     return NextResponse.redirect(url);
   }
 

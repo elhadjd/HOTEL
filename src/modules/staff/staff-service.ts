@@ -48,20 +48,45 @@ export async function updateMembershipRole(
 ) {
   const membership = await prisma.membership.findUnique({
     where: { id: membershipId },
-    include: { user: true },
+    include: { user: true, role: true },
   });
   if (!membership || membership.institutionId !== ctx.institutionId) {
     throw new Error("Membership not found");
   }
   assertSameInstitution(ctx, membership.institutionId);
 
+  if (membership.userId === ctx.userId) {
+    throw new Error("Cannot change your own role");
+  }
+
+  if (membership.role.code === "hotel_admin" && ctx.roleCode !== "hotel_admin") {
+    throw new Error("Only a hotel administrator can modify another administrator's role");
+  }
+
   const role = await prisma.role.findFirst({
     where: { institutionId: ctx.institutionId, code: roleCode },
+    include: {
+      permissions: {
+        include: { permission: { select: { code: true } } },
+      },
+    },
   });
   if (!role) throw new Error("Role not found");
 
-  // Prevent demoting the last institution admin
-  if (membership.user.isInstitutionAdmin && roleCode !== "hotel_admin") {
+  // Prevent privilege escalation: caller cannot assign hotel_admin unless already
+  // hotel_admin, and cannot assign any role whose permissions exceed their own.
+  if (role.code === "hotel_admin" && ctx.roleCode !== "hotel_admin") {
+    throw new Error("Insufficient privileges to assign hotel_admin role");
+  }
+  const callerPerms = new Set(ctx.permissions);
+  for (const rp of role.permissions) {
+    if (!callerPerms.has(rp.permission.code)) {
+      throw new Error("Cannot assign a role with permissions you do not hold");
+    }
+  }
+
+  // Prevent demoting the last active hotel administrator
+  if (membership.role.code === "hotel_admin" && roleCode !== "hotel_admin") {
     const otherAdmins = await prisma.membership.count({
       where: {
         institutionId: ctx.institutionId,
@@ -75,27 +100,34 @@ export async function updateMembershipRole(
     }
   }
 
-  const updated = await prisma.membership.update({
-    where: { id: membershipId },
-    data: { roleId: role.id },
-    include: {
-      user: { select: { id: true, name: true, email: true } },
-      role: { select: { id: true, code: true, name: true } },
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.membership.update({
+      where: { id: membershipId },
+      data: { roleId: role.id },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        role: { select: { id: true, code: true, name: true } },
+      },
+    });
 
-  await prisma.auditLog.create({
-    data: {
-      institutionId: ctx.institutionId,
-      actorUserId: ctx.userId,
-      action: "UPDATE",
-      entityType: "MembershipRole",
-      entityId: membershipId,
-      metadata: { roleCode },
-    },
-  });
+    await tx.user.update({
+      where: { id: membership.userId },
+      data: { sessionVersion: { increment: 1 } },
+    });
 
-  return updated;
+    await tx.auditLog.create({
+      data: {
+        institutionId: ctx.institutionId,
+        actorUserId: ctx.userId,
+        action: "UPDATE",
+        entityType: "MembershipRole",
+        entityId: membershipId,
+        metadata: { previousRoleCode: membership.role.code, roleCode },
+      },
+    });
+
+    return updated;
+  });
 }
 
 export async function setMembershipStatus(
@@ -114,11 +146,10 @@ export async function setMembershipStatus(
   if (membership.userId === ctx.userId && status !== "ACTIVE") {
     throw new Error("Cannot suspend your own membership");
   }
-  if (
-    status !== "ACTIVE" &&
-    membership.role.code === "hotel_admin" &&
-    membership.user.isInstitutionAdmin
-  ) {
+  if (membership.role.code === "hotel_admin" && ctx.roleCode !== "hotel_admin") {
+    throw new Error("Only a hotel administrator can change an administrator's status");
+  }
+  if (status !== "ACTIVE" && membership.role.code === "hotel_admin") {
     const otherAdmins = await prisma.membership.count({
       where: {
         institutionId: ctx.institutionId,
@@ -132,27 +163,37 @@ export async function setMembershipStatus(
     }
   }
 
-  const updated = await prisma.membership.update({
-    where: { id: membershipId },
-    data: { status },
-    include: {
-      user: { select: { id: true, name: true, email: true } },
-      role: { select: { id: true, code: true, name: true } },
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.membership.update({
+      where: { id: membershipId },
+      data: { status },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        role: { select: { id: true, code: true, name: true } },
+      },
+    });
 
-  await prisma.auditLog.create({
-    data: {
-      institutionId: ctx.institutionId,
-      actorUserId: ctx.userId,
-      action: "UPDATE",
-      entityType: "MembershipStatus",
-      entityId: membershipId,
-      metadata: { status },
-    },
-  });
+    if (status !== "ACTIVE") {
+      await tx.user.update({
+        where: { id: membership.userId },
+        data: { sessionVersion: { increment: 1 } },
+      });
+      await tx.session.deleteMany({ where: { userId: membership.userId } });
+    }
 
-  return updated;
+    await tx.auditLog.create({
+      data: {
+        institutionId: ctx.institutionId,
+        actorUserId: ctx.userId,
+        action: "UPDATE",
+        entityType: "MembershipStatus",
+        entityId: membershipId,
+        metadata: { status },
+      },
+    });
+
+    return updated;
+  });
 }
 
 export async function listInstitutionRoles(prisma: PrismaClient, ctx: TenantContext) {

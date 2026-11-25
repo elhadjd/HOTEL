@@ -31,14 +31,9 @@ export function ForgotPasswordForm({
       const data = (await res.json().catch(() => ({}))) as {
         message?: string;
         error?: string;
-        found?: boolean;
       };
       if (res.status === 429) {
         setError(data.error ?? "Too many requests");
-        return;
-      }
-      if (res.status === 404 || data.found === false) {
-        setError(data.message ?? labels.notFound);
         return;
       }
       if (!res.ok) {

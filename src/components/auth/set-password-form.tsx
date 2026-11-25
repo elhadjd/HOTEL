@@ -14,7 +14,7 @@ export function SetPasswordForm({
     help: string;
   };
 }) {
-  const { data: session, update } = useSession();
+  const { data: session } = useSession();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +27,7 @@ export function SetPasswordForm({
       setError("Passwords do not match");
       return;
     }
+    const email = session?.user?.email;
     startTransition(async () => {
       const res = await fetch("/api/v1/auth/change-password", {
         method: "POST",
@@ -39,24 +40,21 @@ export function SetPasswordForm({
         return;
       }
 
-      // Refresh JWT so sessionVersion / mustChangePassword match the DB
-      try {
-        await update();
-      } catch {
-        // Fall through to re-authenticate with the new password
+      // Password change increments sessionVersion and revokes the previous JWT.
+      // Mint a fresh session with the new password.
+      if (!email) {
+        window.location.assign("/login");
+        return;
       }
 
-      const email = session?.user?.email;
-      if (email) {
-        const login = await signIn("credentials", {
-          email,
-          password,
-          redirect: false,
-        });
-        if (login?.error || !login?.ok) {
-          window.location.assign("/login");
-          return;
-        }
+      const login = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+      });
+      if (login?.error || !login?.ok) {
+        window.location.assign("/login");
+        return;
       }
 
       window.location.assign("/dashboard");

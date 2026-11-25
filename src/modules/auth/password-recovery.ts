@@ -10,21 +10,22 @@ import { enforceRateLimit, RateLimitError } from "@/modules/auth/rate-limit";
 import { enqueueAndSendEmail } from "@/modules/email/outbox";
 import { logger } from "@/server/logger";
 
-const EMAIL_NOT_FOUND_MESSAGE =
-  "Não existe conta activa com este email. Verifique o endereço e tente novamente.";
-const EMAIL_SENT_MESSAGE =
-  "Enviámos as instruções de recuperação para o seu email. Verifique a caixa de entrada.";
+const GENERIC_RECOVERY_MESSAGE =
+  "Se existir uma conta activa com este email, enviámos instruções de recuperação. Verifique a caixa de entrada.";
+
+/** @deprecated Kept for backwards compatibility — now identical to GENERIC_MESSAGE to prevent account enumeration */
+const EMAIL_NOT_FOUND_MESSAGE = GENERIC_RECOVERY_MESSAGE;
+const EMAIL_SENT_MESSAGE = GENERIC_RECOVERY_MESSAGE;
 
 export { EMAIL_NOT_FOUND_MESSAGE, EMAIL_SENT_MESSAGE, RateLimitError };
 
-/** @deprecated Prefer EMAIL_SENT_MESSAGE / EMAIL_NOT_FOUND_MESSAGE */
-export const GENERIC_MESSAGE = EMAIL_SENT_MESSAGE;
+export const GENERIC_MESSAGE = GENERIC_RECOVERY_MESSAGE;
 
 export async function requestPasswordReset(
   prisma: PrismaClient,
   emailRaw: string,
   requestIp?: string | null,
-): Promise<{ message: string; found: boolean }> {
+): Promise<{ message: string }> {
   const email = emailRaw.trim().toLowerCase();
 
   try {
@@ -46,7 +47,7 @@ export async function requestPasswordReset(
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !user.active) {
-    return { message: EMAIL_NOT_FOUND_MESSAGE, found: false };
+    return { message: GENERIC_MESSAGE };
   }
 
   const token = generateOpaqueToken(32);
@@ -106,7 +107,7 @@ export async function requestPasswordReset(
   });
 
   logger.info("auth.password_reset.requested", { userId: user.id });
-  return { message: EMAIL_SENT_MESSAGE, found: true };
+  return { message: GENERIC_MESSAGE };
 }
 
 export async function resetPasswordWithToken(

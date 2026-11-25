@@ -383,7 +383,7 @@ export async function createInvoiceDraft(
     input.lines,
   );
 
-  const client = getAggregateClient();
+  const client = getAggregateClient(resolved.connection.host);
 
   let reservationId = input.reservationId ?? null;
   let stayId = input.stayId ?? null;
@@ -557,6 +557,74 @@ async function recordAttempt(
   });
 }
 
+export type NormalizedInvoiceLine = {
+  product_id: number;
+  quantity: number;
+  unit_price: number;
+  discount?: number;
+  description?: string;
+  centralName?: string | null;
+  localCode?: string | null;
+  tax_percent?: number | null;
+  line_total?: number;
+};
+
+function mergeRemoteSaleItems(
+  existingLinesJson: unknown,
+  sale: {
+    items?: Array<{
+      quantity?: number;
+      unit_price?: number;
+      discount?: number;
+      tax_percent?: number;
+      line_total?: number;
+      product?: { id?: number; name?: string; code?: string; sale_price?: number };
+    }>;
+  },
+): Prisma.InputJsonValue | undefined {
+  if (!Array.isArray(sale.items) || sale.items.length === 0) return undefined;
+  const prior =
+    existingLinesJson && typeof existingLinesJson === "object"
+      ? (existingLinesJson as Record<string, unknown>)
+      : {};
+  const centralItems: NormalizedInvoiceLine[] = sale.items.map((item) => ({
+    product_id: Number(item.product?.id ?? 0),
+    quantity: Number(item.quantity ?? 0),
+    unit_price: Number(item.unit_price ?? item.product?.sale_price ?? 0),
+    discount: item.discount != null ? Number(item.discount) : 0,
+    centralName: item.product?.name ?? null,
+    localCode: item.product?.code ?? null,
+    tax_percent: item.tax_percent != null ? Number(item.tax_percent) : null,
+    line_total: item.line_total != null ? Number(item.line_total) : undefined,
+  }));
+  return {
+    ...prior,
+    centralItems,
+  } as Prisma.InputJsonValue;
+}
+
+/**
+ * Extract all displayable/summarizable lines from linesJson.
+ * Prefers authoritative centralItems synced from SIGESC when available;
+ * otherwise merges initial draft lines + all appended batches.
+ */
+export function extractInvoiceLines(linesJson: unknown): NormalizedInvoiceLine[] {
+  if (!linesJson || typeof linesJson !== "object") return [];
+  const obj = linesJson as {
+    centralItems?: NormalizedInvoiceLine[];
+    lines?: NormalizedInvoiceLine[];
+    appended?: Array<{ lines?: NormalizedInvoiceLine[] }>;
+  };
+  if (Array.isArray(obj.centralItems) && obj.centralItems.length > 0) {
+    return obj.centralItems;
+  }
+  const base = Array.isArray(obj.lines) ? obj.lines : [];
+  const appended = Array.isArray(obj.appended)
+    ? obj.appended.flatMap((batch) => (Array.isArray(batch?.lines) ? batch.lines : []))
+    : [];
+  return [...base, ...appended];
+}
+
 function persistSaleFields(sale: {
   id: number;
   sale_key: string;
@@ -631,15 +699,17 @@ export async function submitInvoice(
 
   const invoice = await prisma.invoiceIntegration.findUniqueOrThrow({ where: { id: invoiceId } });
   const payload = buildSalePayload(invoice);
-  const client = getAggregateClient();
+  const client = getAggregateClient(resolved.connection.host);
 
   try {
     const { httpStatus, result } = await client.createSale(resolved.apiKey, payload);
     const fields = persistSaleFields(result.sale);
+    const syncedLinesJson = mergeRemoteSaleItems(invoice.linesJson, result.sale);
     const updated = await prisma.invoiceIntegration.update({
       where: { id: invoiceId },
       data: {
         ...fields,
+        ...(syncedLinesJson ? { linesJson: syncedLinesJson } : {}),
         idempotentHit: Boolean(result.idempotent) || httpStatus === 200,
       },
     });
@@ -759,14 +829,16 @@ export async function refreshInvoiceFromCentral(
   }
   const resolved = await resolveInstitutionAggregateConnection(prisma, ctx.institutionId);
   assertAggregateScope(resolved, "sales");
-  const client = getAggregateClient();
+  const client = getAggregateClient(resolved.connection.host);
   const sale = await client.getSale(resolved.apiKey, invoice.saleKey);
   assertCompanyMatchesConnection(resolved, sale.company_id);
 
+  const syncedLinesJson = mergeRemoteSaleItems(invoice.linesJson, sale);
   const updated = await prisma.invoiceIntegration.update({
     where: { id: invoiceId },
     data: {
       ...persistSaleFields(sale),
+      ...(syncedLinesJson ? { linesJson: syncedLinesJson } : {}),
       status: "CREATED",
     },
   });
@@ -778,6 +850,7 @@ export async function refreshInvoiceFromCentral(
       sale_id: sale.id,
       state: sale.state,
       total: sale.total,
+      item_count: sale.items?.length ?? null,
     },
   });
 
@@ -855,7 +928,7 @@ export async function addItemsToInvoice(
   assertAggregateScope(resolved, "sales");
   assertAggregateScope(resolved, "products");
   const lineItems = await resolveLineItems(prisma, ctx, resolved.companyId, lines);
-  const client = getAggregateClient();
+  const client = getAggregateClient(resolved.connection.host);
 
   await recordAttempt(prisma, invoiceId, {
     outcome: "ADD_ITEMS_PENDING",
@@ -880,17 +953,20 @@ export async function addItemsToInvoice(
     );
     assertEditableCentralState(sale.state);
     const prior =
-      invoice.linesJson && typeof invoice.linesJson === "object"
-        ? (invoice.linesJson as Record<string, unknown>)
+      fresh.linesJson && typeof fresh.linesJson === "object"
+        ? (fresh.linesJson as Record<string, unknown>)
         : {};
     const priorAppended = Array.isArray(prior.appended) ? prior.appended : [];
-    const nextLinesJson = {
+    const baseNextLinesJson = {
       ...prior,
       appended: [
         ...priorAppended,
         { at: new Date().toISOString(), token: attemptToken, lines: lineItems },
       ],
-    } as Prisma.InputJsonValue;
+    };
+    const nextLinesJson =
+      mergeRemoteSaleItems(baseNextLinesJson, sale) ??
+      (baseNextLinesJson as Prisma.InputJsonValue);
     const updated = await prisma.invoiceIntegration.update({
       where: { id: invoiceId },
       data: {
@@ -921,19 +997,22 @@ export async function addItemsToInvoice(
     return updated;
   } catch (err) {
     const message = err instanceof Error ? err.message : "add items failed";
-    const isTimeout =
+    const isAmbiguous =
       err instanceof AggregateApiError
-        ? err.status === 408 || /timeout|timed out|ETIMEDOUT|AbortError/i.test(message)
-        : /timeout|timed out|ETIMEDOUT|AbortError/i.test(message);
+        ? err.status === 408 ||
+          err.status === 503 ||
+          err.status === 504 ||
+          /timeout|timed out|ETIMEDOUT|AbortError|unavailable|network/i.test(message)
+        : /timeout|timed out|ETIMEDOUT|AbortError|unavailable|network/i.test(message);
 
-    if (isTimeout) {
+    if (isAmbiguous) {
       // Leave PENDING without FAILED — Aggregate may have applied the items.
       // Retry with the same idempotency key will refresh and require reconciliation.
       await prisma.invoiceIntegration.update({
         where: { id: invoiceId },
         data: {
           status: "RECONCILIATION_REQUIRED",
-          lastError: "Append timed out — verify central items before retrying",
+          lastError: "Append timed out or network failed — verify central items before retrying",
         },
       });
       throw err;
@@ -955,9 +1034,7 @@ export function summarizeInvoiceLines(linesJson: unknown): {
   discount: number;
   currencyHint: string;
 } {
-  const lines =
-    (linesJson as { lines?: Array<{ quantity?: number; unit_price?: number; discount?: number }> })
-      ?.lines ?? [];
+  const lines = extractInvoiceLines(linesJson);
   let totalQuantity = 0;
   let subtotal = 0;
   let discount = 0;

@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/server/db";
-import { enforceRateLimit, RateLimitError } from "@/modules/auth/rate-limit";
+import {
+  enforceRateLimit,
+  extractClientIp,
+  RateLimitError,
+} from "@/modules/auth/rate-limit";
 import { resetPasswordWithToken } from "@/modules/auth/password-recovery";
 
 const bodySchema = z.object({
@@ -9,14 +13,6 @@ const bodySchema = z.object({
   password: z.string().min(10),
   confirmPassword: z.string().min(10),
 });
-
-function clientIp(request: Request): string | null {
-  return (
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
-    null
-  );
-}
 
 export async function POST(request: Request) {
   let json: unknown;
@@ -35,7 +31,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Passwords do not match" }, { status: 400 });
   }
 
-  const ip = clientIp(request);
+  const ip = extractClientIp(request);
   try {
     await enforceRateLimit({
       bucketKey: `reset:${ip ?? "unknown"}`,

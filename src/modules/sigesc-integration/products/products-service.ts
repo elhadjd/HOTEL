@@ -34,7 +34,7 @@ export async function searchCentralProducts(
 ) {
   const resolved = await resolveInstitutionAggregateConnection(prisma, ctx.institutionId);
   assertAggregateScope(resolved, "products");
-  const client = getAggregateClient();
+  const client = getAggregateClient(resolved.connection.host);
   return client.listProducts(resolved.apiKey, {
     ...query,
     company_id: resolved.companyNumericId,
@@ -48,7 +48,7 @@ export async function getCentralProduct(
 ) {
   const resolved = await resolveInstitutionAggregateConnection(prisma, ctx.institutionId);
   assertAggregateScope(resolved, "products");
-  const client = getAggregateClient();
+  const client = getAggregateClient(resolved.connection.host);
   const product = await client.getProduct(resolved.apiKey, productId, {
     company_id: resolved.companyNumericId,
   });
@@ -92,7 +92,7 @@ export async function createCentralProduct(
 ) {
   const resolved = await resolveInstitutionAggregateConnection(prisma, ctx.institutionId);
   assertAggregateScope(resolved, "products");
-  const client = getAggregateClient();
+  const client = getAggregateClient(resolved.connection.host);
   const result = await client.createProduct(resolved.apiKey, {
     ...input,
     company_id: resolved.companyNumericId,
@@ -122,7 +122,7 @@ export async function updateCentralProduct(
   const resolved = await resolveInstitutionAggregateConnection(prisma, ctx.institutionId);
   assertAggregateScope(resolved, "products");
   await getCentralProduct(prisma, ctx, productId);
-  const client = getAggregateClient();
+  const client = getAggregateClient(resolved.connection.host);
   const result = await client.updateProduct(resolved.apiKey, productId, input);
 
   await prisma.auditLog.create({

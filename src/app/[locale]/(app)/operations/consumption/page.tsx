@@ -18,6 +18,7 @@ export default async function ConsumptionPage({
   const query = await searchParams;
   setRequestLocale(locale);
   const ctx = await requirePageTenant("stays.manage");
+  await requirePageTenant("integrations.invoices");
 
   const [stays, mappings] = await Promise.all([
     listActiveStays(prisma, ctx),

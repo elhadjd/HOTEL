@@ -107,9 +107,14 @@ export async function voidStayCharge(
   ctx: TenantContext,
   chargeId: string,
   reason: string,
+  expectedStayId?: string,
 ) {
   const charge = await prisma.stayAccountCharge.findUnique({ where: { id: chargeId } });
-  if (!charge || charge.institutionId !== ctx.institutionId) {
+  if (
+    !charge ||
+    charge.institutionId !== ctx.institutionId ||
+    (expectedStayId && charge.stayId !== expectedStayId)
+  ) {
     throw new Error("Charge not found");
   }
   if (charge.status === "HANDED_OFF") {

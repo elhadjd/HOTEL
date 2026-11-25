@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/server/db";
 import { jsonError, requireTenant } from "@/server/api-auth";
+import { assertPermission } from "@/modules/tenancy/tenant";
 import {
   createReservation,
   listReservations,
@@ -63,6 +64,9 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (parsed.data.status === "CONFIRMED") {
+      assertPermission(authz.ctx, "reservations.confirm");
+    }
     const reservation = await createReservation(prisma, authz.ctx, {
       ...parsed.data,
       arrivalDate: toDateOnlyUtc(parsed.data.arrivalDate),

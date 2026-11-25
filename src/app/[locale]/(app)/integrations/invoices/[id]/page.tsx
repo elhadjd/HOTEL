@@ -3,7 +3,10 @@ import { getTranslations, setRequestLocale } from "next-intl/server";
 import { AppShell } from "@/components/layout/app-shell";
 import { prisma } from "@/server/db";
 import { requirePageTenant } from "@/server/page-auth";
-import { getInvoiceIntegration } from "@/modules/sigesc-integration/invoices/invoice-service";
+import {
+  extractInvoiceLines,
+  getInvoiceIntegration,
+} from "@/modules/sigesc-integration/invoices/invoice-service";
 import { listCatalogMappings } from "@/modules/sigesc-integration/products/products-service";
 import { InvoiceDetailClient } from "./invoice-detail-client";
 
@@ -40,20 +43,7 @@ export default async function InvoiceDetailPage({
       : null,
   ]);
 
-  const lines =
-    (
-      invoice.linesJson as {
-        lines?: Array<{
-          product_id: number;
-          quantity: number;
-          unit_price: number;
-          discount?: number;
-          description?: string;
-          centralName?: string | null;
-          localCode?: string | null;
-        }>;
-      }
-    )?.lines ?? [];
+  const lines = extractInvoiceLines(invoice.linesJson);
 
   return (
     <AppShell title={invoice.externalId}>

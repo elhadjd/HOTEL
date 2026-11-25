@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/server/db";
 import { logger } from "@/server/logger";
-import { enforceRateLimit, RateLimitError } from "@/modules/auth/rate-limit";
+import {
+  enforceRateLimit,
+  extractClientIp,
+  RateLimitError,
+} from "@/modules/auth/rate-limit";
 import {
   AggregateApiError,
   assertNoSecretLeak,
@@ -12,14 +16,6 @@ import {
 const bodySchema = z.object({
   challengeToken: z.string().min(20),
 });
-
-function clientIp(request: Request): string | null {
-  return (
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
-    null
-  );
-}
 
 export async function POST(request: Request) {
   let json: unknown;
@@ -34,7 +30,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid challenge payload" }, { status: 400 });
   }
 
-  const ip = clientIp(request);
+  const ip = extractClientIp(request);
   try {
     await enforceRateLimit({
       bucketKey: `onboard-confirm:${ip ?? "unknown"}`,

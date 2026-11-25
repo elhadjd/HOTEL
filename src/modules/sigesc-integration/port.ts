@@ -108,12 +108,32 @@ export interface AggregatePort {
 export type AggregateMode = "mock" | "http";
 
 export function resolveAggregateMode(): AggregateMode {
-  const mode = (
+  const raw = (
     process.env.SIGESC_AGGREGATE_MODE ??
     process.env.SIGESC_INTEGRATION_MODE ??
-    "mock"
-  ).toLowerCase();
-  return mode === "http" ? "http" : "mock";
+    ""
+  )
+    .trim()
+    .toLowerCase();
+
+  if (process.env.NODE_ENV === "production") {
+    if (raw === "mock") {
+      throw new Error(
+        'SIGESC_AGGREGATE_MODE="mock" is forbidden in production. Configure SIGESC_AGGREGATE_MODE="http" to send documents to SIGESC.',
+      );
+    }
+    return "http";
+  }
+
+  return raw === "http" ? "http" : "mock";
+}
+
+export function isAggregateMockMode(): boolean {
+  try {
+    return resolveAggregateMode() === "mock";
+  } catch {
+    return false;
+  }
 }
 
 export function resolveAggregateHost(): string {

@@ -63,6 +63,7 @@ export async function POST(
         authz.ctx,
         parsed.data.chargeId,
         parsed.data.reason,
+        stayId,
       );
       return NextResponse.json({ charge });
     } catch (err) {

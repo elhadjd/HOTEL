@@ -4,15 +4,13 @@ import { useState, useTransition } from "react";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { safeCallbackPath } from "@/shared/safe-redirect";
 
 function postLoginPath(mustChangePassword: boolean): string {
   if (mustChangePassword) return "/set-password";
   if (typeof window === "undefined") return "/dashboard";
   const raw = new URLSearchParams(window.location.search).get("callbackUrl");
-  if (raw && raw.startsWith("/") && !raw.startsWith("//") && !raw.startsWith("/login")) {
-    return raw;
-  }
-  return "/dashboard";
+  return safeCallbackPath(raw) ?? "/dashboard";
 }
 
 export function LoginForm({

@@ -19,8 +19,19 @@ const upsertSchema = z
   .strict();
 
 export async function GET(request: Request) {
-  const authz = await requireTenant("integrations.products");
+  const authz = await requireTenant();
   if (!authz.ok) return authz.response;
+  const canReadMappings =
+    authz.ctx.permissions.includes("integrations.products") ||
+    authz.ctx.permissions.includes("integrations.invoices") ||
+    authz.ctx.permissions.includes("stays.manage") ||
+    authz.ctx.permissions.includes("stay_accounts.manage");
+  if (!canReadMappings) {
+    return NextResponse.json(
+      { error: "Missing permission to read catalog mappings" },
+      { status: 403 },
+    );
+  }
   try {
     const url = new URL(request.url);
     const q = url.searchParams.get("q") ?? undefined;

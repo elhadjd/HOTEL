@@ -13,12 +13,16 @@ export interface Mailer {
   send(input: SendMailInput): Promise<{ messageId: string }>;
 }
 
+const MAX_MOCK_EMAIL_HISTORY = 100;
+
 class MockMailer implements Mailer {
   public readonly sent: SendMailInput[] = [];
   /** Full text bodies for test assertions only — never logged */
   public readonly sentTexts: string[] = [];
 
   async send(input: SendMailInput) {
+    if (this.sent.length >= MAX_MOCK_EMAIL_HISTORY) this.sent.shift();
+    if (this.sentTexts.length >= MAX_MOCK_EMAIL_HISTORY) this.sentTexts.shift();
     this.sent.push({
       to: input.to,
       subject: input.subject,
@@ -72,7 +76,13 @@ let singleton: Mailer | null = null;
 let mockSingleton: MockMailer | null = null;
 
 export function resolveEmailMode(): "mock" | "smtp" {
-  const mode = (process.env.EMAIL_MODE ?? "mock").toLowerCase();
+  const mode = (process.env.EMAIL_MODE ?? "").trim().toLowerCase();
+  if (process.env.NODE_ENV === "production") {
+    if (mode === "mock") {
+      throw new Error('EMAIL_MODE="mock" is forbidden in production. Configure SMTP.');
+    }
+    return "smtp";
+  }
   return mode === "smtp" ? "smtp" : "mock";
 }
 

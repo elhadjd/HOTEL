@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState, useTransition } from "react";
+import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select";
 
@@ -31,6 +31,7 @@ export function ConsumptionClient({
   const [message, setMessage] = useState<string | null>(null);
   const [invoiceId, setInvoiceId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const pendingKeyRef = useRef<{ signature: string; key: string } | null>(null);
 
   const estimate = useMemo(() => {
     let total = 0;
@@ -101,10 +102,21 @@ export function ConsumptionClient({
       setError("Adicione produtos.");
       return;
     }
-    const idempotencyKey =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? `consume-ui-${crypto.randomUUID()}`
-        : `consume-ui-${Date.now()}`;
+    const payloadLines = lines.map((l) => ({
+      mappingLocalCode: l.mappingLocalCode,
+      quantity: Number(l.quantity) || 1,
+    }));
+    const signature = JSON.stringify({ stayId, createIfMissing, payloadLines });
+    if (!pendingKeyRef.current || pendingKeyRef.current.signature !== signature) {
+      pendingKeyRef.current = {
+        signature,
+        key:
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? `consume-ui-${crypto.randomUUID()}`
+            : `consume-ui-${Date.now()}`,
+      };
+    }
+    const idempotencyKey = pendingKeyRef.current.key;
     startTransition(async () => {
       const res = await fetch(`/api/v1/stays/${stayId}/consume`, {
         method: "POST",
@@ -112,10 +124,7 @@ export function ConsumptionClient({
         body: JSON.stringify({
           createDocumentIfMissing: createIfMissing,
           idempotencyKey,
-          lines: lines.map((l) => ({
-            mappingLocalCode: l.mappingLocalCode,
-            quantity: Number(l.quantity) || 1,
-          })),
+          lines: payloadLines,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -123,8 +132,13 @@ export function ConsumptionClient({
         setError(data.error ?? "Falha");
         return;
       }
-      setMessage(data.message ?? "Consumo registado");
+      pendingKeyRef.current = null;
       setInvoiceId(data.invoice?.id ?? null);
+      if (data.reconciliationRequired) {
+        setError(data.message ?? "Consumo registado localmente, mas envio ao SIGESC requer reconciliação.");
+      } else {
+        setMessage(data.message ?? "Consumo registado");
+      }
       setLines([]);
     });
   }

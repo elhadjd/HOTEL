@@ -16,7 +16,7 @@ export async function searchCentralCustomers(
 ) {
   const resolved = await resolveInstitutionAggregateConnection(prisma, ctx.institutionId);
   assertAggregateScope(resolved, "customers");
-  const client = getAggregateClient();
+  const client = getAggregateClient(resolved.connection.host);
   return client.listCustomers(resolved.apiKey, {
     ...query,
     company_id: resolved.companyNumericId,
@@ -30,7 +30,7 @@ export async function getCentralCustomer(
 ) {
   const resolved = await resolveInstitutionAggregateConnection(prisma, ctx.institutionId);
   assertAggregateScope(resolved, "customers");
-  const client = getAggregateClient();
+  const client = getAggregateClient(resolved.connection.host);
   const customer = await client.getCustomer(resolved.apiKey, customerId, {
     company_id: resolved.companyNumericId,
   });
@@ -45,7 +45,7 @@ export async function createCentralCustomer(
 ) {
   const resolved = await resolveInstitutionAggregateConnection(prisma, ctx.institutionId);
   assertAggregateScope(resolved, "customers");
-  const client = getAggregateClient();
+  const client = getAggregateClient(resolved.connection.host);
   const result = await client.createCustomer(resolved.apiKey, {
     ...input,
     company_id: resolved.companyNumericId,
@@ -79,7 +79,7 @@ export async function updateCentralCustomer(
   assertAggregateScope(resolved, "customers");
   // Verify ownership first
   await getCentralCustomer(prisma, ctx, customerId);
-  const client = getAggregateClient();
+  const client = getAggregateClient(resolved.connection.host);
   // Never send company_id as ownership transfer — docs say it is ignored, we omit it.
   const result = await client.updateCustomer(resolved.apiKey, customerId, input);
 

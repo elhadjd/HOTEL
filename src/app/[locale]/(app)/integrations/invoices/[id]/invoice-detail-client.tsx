@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select";
@@ -49,6 +49,12 @@ function money(value: number | null | undefined, currency = "AOA") {
   return `${value.toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 }
 
+function makeClientIdempotencyKey(prefix: string): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? `${prefix}-${crypto.randomUUID()}`
+    : `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export function InvoiceDetailClient({
   invoice: initial,
   mappings,
@@ -65,6 +71,11 @@ export function InvoiceDetailClient({
   const [qty, setQty] = useState("1");
   const [discount, setDiscount] = useState("0");
   const [mappingOptions, setMappingOptions] = useState(mappings);
+  const pendingAppendKey = useRef<{ signature: string; key: string } | null>(null);
+
+  useEffect(() => {
+    setInvoice(initial);
+  }, [initial]);
 
   const editable =
     invoice.status === "CREATED" &&
@@ -133,10 +144,21 @@ export function InvoiceDetailClient({
       if (!res.ok) {
         setError(data.error ?? `${path} failed`);
         if (data.invoice) setInvoice((prev) => ({ ...prev, ...normalizeInvoice(data.invoice, prev) }));
+        router.refresh();
         return;
       }
-      setInvoice((prev) => ({ ...prev, ...normalizeInvoice(data.invoice, prev) }));
-      setMessage(`Actualizado: ${data.invoice?.status} / ${data.invoice?.centralState ?? "—"}`);
+      if (data.invoice) {
+        setInvoice((prev) => ({ ...prev, ...normalizeInvoice(data.invoice, prev) }));
+      }
+      if (data.reconciliationRequired || data.invoice?.status === "RECONCILIATION_REQUIRED") {
+        setError(
+          data.warning ??
+            data.invoice?.lastError ??
+            "Envio não confirmado pelo SIGESC — reconciliação obrigatória antes de assumir criação.",
+        );
+      } else {
+        setMessage(`Confirmado no SIGESC: ${data.invoice?.status} / ${data.invoice?.centralState ?? "—"}`);
+      }
       router.refresh();
     });
   }
@@ -149,31 +171,38 @@ export function InvoiceDetailClient({
       setError("Seleccione um produto.");
       return;
     }
-    const idempotencyKey =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? `ui-append-${crypto.randomUUID()}`
-        : `ui-append-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const payloadLines = [
+      {
+        mappingLocalCode: productPick,
+        quantity: Number(qty) || 1,
+        discount: Number(discount) || 0,
+      },
+    ];
+    const signature = JSON.stringify(payloadLines);
+    if (!pendingAppendKey.current || pendingAppendKey.current.signature !== signature) {
+      pendingAppendKey.current = {
+        signature,
+        key: makeClientIdempotencyKey("ui-append"),
+      };
+    }
+    const idempotencyKey = pendingAppendKey.current.key;
     startTransition(async () => {
       const res = await fetch(`/api/v1/integrations/sigesc/invoices/${invoice.id}/items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           idempotencyKey,
-          lines: [
-            {
-              mappingLocalCode: productPick,
-              quantity: Number(qty) || 1,
-              discount: Number(discount) || 0,
-            },
-          ],
+          lines: payloadLines,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Falha ao adicionar produtos");
         if (data.invoice) setInvoice((prev) => ({ ...prev, ...normalizeInvoice(data.invoice, prev) }));
+        router.refresh();
         return;
       }
+      pendingAppendKey.current = null;
       if (data.invoice) setInvoice((prev) => ({ ...prev, ...normalizeInvoice(data.invoice, prev) }));
       setMessage("Produtos adicionados no documento central. Totais = resposta Aggregate.");
       setProductPick("");
@@ -413,13 +442,14 @@ function normalizeInvoice(
     ...prev,
     id: String(incoming.id ?? prev.id),
     status: String(incoming.status ?? prev.status),
-    saleKey: (incoming.saleKey as string | null) ?? prev.saleKey,
-    centralState: (incoming.centralState as string | null) ?? prev.centralState,
+    saleKey: "saleKey" in incoming ? (incoming.saleKey as string | null) : prev.saleKey,
+    centralState:
+      "centralState" in incoming ? (incoming.centralState as string | null) : prev.centralState,
     centralTotal:
       incoming.centralTotal != null ? Number(incoming.centralTotal) : prev.centralTotal,
     centralSubtotal:
       incoming.centralSubtotal != null ? Number(incoming.centralSubtotal) : prev.centralSubtotal,
     centralTax: incoming.centralTax != null ? Number(incoming.centralTax) : prev.centralTax,
-    lastError: (incoming.lastError as string | null) ?? prev.lastError,
+    lastError: "lastError" in incoming ? (incoming.lastError as string | null) : prev.lastError,
   };
 }

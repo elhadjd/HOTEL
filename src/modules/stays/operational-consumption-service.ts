@@ -76,6 +76,41 @@ export async function registerOperationalConsumption(
       })),
     });
     invoice = await submitInvoice(prisma, ctx, draft.id);
+
+    if (invoice.status !== "CREATED") {
+      await prisma.stayAccountCharge.updateMany({
+        where: { id: { in: charges.map((c) => c.id) } },
+        data: { invoiceIntegrationId: invoice.id },
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          institutionId: ctx.institutionId,
+          actorUserId: ctx.userId,
+          action: "UPDATE",
+          entityType: "OperationalConsumption",
+          entityId: stay.id,
+          metadata: {
+            event: "consumption.document_unconfirmed",
+            invoiceId: invoice.id,
+            invoiceStatus: invoice.status,
+            chargeIds: charges.map((c) => c.id),
+          },
+        },
+      });
+
+      return {
+        stayId: stay.id,
+        charges,
+        invoice,
+        createdDocument: false,
+        appended: false,
+        reconciliationRequired: invoice.status === "RECONCILIATION_REQUIRED",
+        message:
+          "Consumo registado na conta local, mas o envio ao SIGESC não foi confirmado (reconciliação necessária antes de considerar faturado).",
+      };
+    }
+
     createdDocument = true;
 
     await prisma.stayAccountCharge.updateMany({
@@ -104,7 +139,8 @@ export async function registerOperationalConsumption(
       invoice,
       createdDocument,
       appended: false,
-      message: "Cotação criada e submetida com os produtos do consumo.",
+      reconciliationRequired: false,
+      message: "Cotação criada e confirmada no SIGESC com os produtos do consumo.",
     };
   }
 
