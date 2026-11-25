@@ -46,6 +46,7 @@ export function ProductsClient({
 
   const [localCode, setLocalCode] = useState("accommodation");
   const [localLabel, setLocalLabel] = useState("Alojamento");
+  const [mappingKind, setMappingKind] = useState<"SERVICE" | "PRODUCT">("SERVICE");
   const [centralProductId, setCentralProductId] = useState("");
   const [newName, setNewName] = useState("");
   const [newPrice, setNewPrice] = useState("");
@@ -91,7 +92,7 @@ export function ProductsClient({
         body: JSON.stringify({
           localCode,
           localLabel,
-          kind: newKind === "service" ? "SERVICE" : "PRODUCT",
+          kind: mappingKind,
           centralProductId,
         }),
       });
@@ -153,6 +154,26 @@ export function ProductsClient({
             : x,
         ),
       );
+    });
+  }
+
+  function toggleMappingActive(id: string, nextActive: boolean) {
+    setError(null);
+    startTransition(async () => {
+      const res = await fetch(`/api/v1/integrations/sigesc/catalog-mappings/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: nextActive }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Falha ao actualizar estado do mapeamento");
+        return;
+      }
+      setMappings((prev) =>
+        prev.map((x) => (x.id === id ? { ...x, active: nextActive } : x)),
+      );
+      router.refresh();
     });
   }
 
@@ -284,6 +305,14 @@ export function ProductsClient({
             Metadados locais (código/etiqueta) apenas — o preço é sempre o central verificado.
           </p>
           <div className="font-ui mt-4 space-y-3 text-sm">
+            <select
+              value={mappingKind}
+              onChange={(e) => setMappingKind(e.target.value as "SERVICE" | "PRODUCT")}
+              className="h-10 w-full rounded-md border border-sand-200 bg-white px-3"
+            >
+              <option value="SERVICE">Serviço</option>
+              <option value="PRODUCT">Produto</option>
+            </select>
             <input
               required
               value={localCode}
@@ -302,7 +331,12 @@ export function ProductsClient({
               required
               options={productOptions}
               value={centralProductId}
-              onChange={setCentralProductId}
+              onChange={(val) => {
+                setCentralProductId(val);
+                const found = products.find((p) => String(p.id) === val);
+                if (found?.kind?.toLowerCase() === "product") setMappingKind("PRODUCT");
+                else if (found?.kind?.toLowerCase() === "service") setMappingKind("SERVICE");
+              }}
               labels={{
                 placeholder: "Produto central SIGESC",
                 searchPlaceholder: "Nome, código, ID…",
@@ -329,12 +363,16 @@ export function ProductsClient({
                   <th className="px-4 py-3">Local</th>
                   <th className="px-4 py-3">Preço central</th>
                   <th className="px-4 py-3">Verificação</th>
+                  <th className="px-4 py-3">Estado</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
                 {mappings.map((m) => (
-                  <tr key={m.id} className="border-b border-sand-100">
+                  <tr
+                    key={m.id}
+                    className={`border-b border-sand-100 ${m.active ? "" : "opacity-60"}`}
+                  >
                     <td className="px-4 py-3">
                       <div className="font-medium text-ink-900">{m.localLabel}</div>
                       <div className="text-xs text-stone-500">
@@ -361,16 +399,34 @@ export function ProductsClient({
                         </div>
                       ) : null}
                     </td>
+                    <td className="px-4 py-3 text-xs">
+                      {m.active ? (
+                        <span className="text-teal-800">Activo</span>
+                      ) : (
+                        <span className="text-stone-500">Inactivo</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        disabled={pending}
-                        onClick={() => refreshPrice(m.id)}
-                      >
-                        Actualizar preço
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={pending}
+                          onClick={() => refreshPrice(m.id)}
+                        >
+                          Actualizar preço
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={pending}
+                          onClick={() => toggleMappingActive(m.id, !m.active)}
+                        >
+                          {m.active ? "Desactivar" : "Reactivar"}
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}

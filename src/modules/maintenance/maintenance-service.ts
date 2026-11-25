@@ -78,6 +78,7 @@ export async function createMaintenanceRequest(
     materialsNotes?: string;
     materialsCost?: number;
     scheduledAt?: Date | string;
+    blockStatus?: "UNDER_MAINTENANCE" | "OUT_OF_SERVICE";
   },
 ) {
   await assertHotel(prisma, ctx, input.hotelId);
@@ -107,10 +108,13 @@ export async function createMaintenanceRequest(
   });
 
   if (input.blocksRoom && input.roomId) {
-    // Never evict an active stay — only mark UNDER_MAINTENANCE (blocks readiness)
+    // Differentiate OUT_OF_SERVICE (critical/explicit outage) from UNDER_MAINTENANCE
+    const nextMaintStatus =
+      input.blockStatus ??
+      (req.priority === "CRITICAL" ? "OUT_OF_SERVICE" : "UNDER_MAINTENANCE");
     await prisma.room.update({
       where: { id: input.roomId },
-      data: { maintenanceStatus: "UNDER_MAINTENANCE" },
+      data: { maintenanceStatus: nextMaintStatus },
     });
   }
 
@@ -121,11 +125,25 @@ export async function createMaintenanceRequest(
       action: "CREATE",
       entityType: "MaintenanceRequest",
       entityId: req.id,
-      metadata: { roomId: input.roomId, blocksRoom: Boolean(input.blocksRoom) },
+      metadata: {
+        roomId: input.roomId,
+        blocksRoom: Boolean(input.blocksRoom),
+        blockStatus: input.blockStatus ?? null,
+      },
     },
   });
 
   return req;
+}
+
+export function deriveMaintenanceRoomStatus(
+  openBlockingRequests: Array<{ priority: string }>,
+): "OK" | "UNDER_MAINTENANCE" | "OUT_OF_SERVICE" {
+  if (openBlockingRequests.length === 0) return "OK";
+  if (openBlockingRequests.some((r) => r.priority === "CRITICAL")) {
+    return "OUT_OF_SERVICE";
+  }
+  return "UNDER_MAINTENANCE";
 }
 
 export async function updateMaintenanceStatus(
@@ -185,26 +203,25 @@ export async function updateMaintenanceStatus(
       data,
     });
 
-    // Resolving maintenance never sets housekeeping to CLEAN — only clears maintenance block
+    // Resolving maintenance never sets housekeeping to CLEAN — only recalculates maintenance block
     if (
       (input.status === "RESOLVED" || input.status === "CANCELLED") &&
       req.roomId &&
       req.blocksRoom
     ) {
-      const otherBlocking = await tx.maintenanceRequest.count({
+      const otherBlocking = await tx.maintenanceRequest.findMany({
         where: {
           roomId: req.roomId,
           id: { not: requestId },
           blocksRoom: true,
           status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS", "WAITING_PARTS"] },
         },
+        select: { priority: true },
       });
-      if (otherBlocking === 0) {
-        await tx.room.update({
-          where: { id: req.roomId },
-          data: { maintenanceStatus: "OK" },
-        });
-      }
+      await tx.room.update({
+        where: { id: req.roomId },
+        data: { maintenanceStatus: deriveMaintenanceRoomStatus(otherBlocking) },
+      });
     }
 
     await tx.auditLog.create({
@@ -247,9 +264,17 @@ export async function reopenMaintenanceRequest(
     });
 
     if (req.blocksRoom && req.roomId) {
+      const openBlocking = await tx.maintenanceRequest.findMany({
+        where: {
+          roomId: req.roomId,
+          blocksRoom: true,
+          status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS", "WAITING_PARTS"] },
+        },
+        select: { priority: true },
+      });
       await tx.room.update({
         where: { id: req.roomId },
-        data: { maintenanceStatus: "UNDER_MAINTENANCE" },
+        data: { maintenanceStatus: deriveMaintenanceRoomStatus(openBlocking) },
       });
     }
 

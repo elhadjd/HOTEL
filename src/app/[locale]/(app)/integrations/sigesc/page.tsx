@@ -4,6 +4,8 @@ import { AppShell } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { prisma } from "@/server/db";
 import { requirePageTenant } from "@/server/page-auth";
+import { resolveAggregateMode } from "@/modules/sigesc-integration/port";
+import { SigescHubClient } from "./sigesc-hub-client";
 
 export default async function SigescIntegrationHubPage({
   params,
@@ -17,6 +19,12 @@ export default async function SigescIntegrationHubPage({
   const connection = await prisma.aggregateConnection.findUnique({
     where: { institutionId: ctx.institutionId },
   });
+  let aggregateMode = "http";
+  try {
+    aggregateMode = resolveAggregateMode();
+  } catch {
+    aggregateMode = "invalid (mock blocked in production)";
+  }
 
   const links = [
     {
@@ -50,28 +58,40 @@ export default async function SigescIntegrationHubPage({
       <div className="surface mb-6 p-5">
         <h2 className="text-lg font-semibold text-ink-900">Ligação</h2>
         {connection ? (
-          <dl className="font-ui mt-3 grid gap-2 text-sm text-stone-600 sm:grid-cols-2">
-            <div>
-              <dt className="text-xs uppercase text-stone-400">Empresa</dt>
-              <dd>{connection.ownerCompanyExternalId ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase text-stone-400">Prefixo chave</dt>
-              <dd>{connection.keyPrefix ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase text-stone-400">Scopes</dt>
-              <dd>
-                {Array.isArray(connection.scopesJson)
-                  ? (connection.scopesJson as string[]).join(", ")
-                  : "—"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase text-stone-400">Modo</dt>
-              <dd>{process.env.SIGESC_AGGREGATE_MODE ?? "mock"}</dd>
-            </div>
-          </dl>
+          <>
+            <dl className="font-ui mt-3 grid gap-2 text-sm text-stone-600 sm:grid-cols-2">
+              <div>
+                <dt className="text-xs uppercase text-stone-400">Empresa</dt>
+                <dd>{connection.ownerCompanyExternalId ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase text-stone-400">Host SIGESC</dt>
+                <dd>{connection.host}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase text-stone-400">Prefixo chave</dt>
+                <dd>{connection.keyPrefix ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase text-stone-400">Scopes</dt>
+                <dd>
+                  {Array.isArray(connection.scopesJson)
+                    ? (connection.scopesJson as string[]).join(", ")
+                    : "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase text-stone-400">Modo efectivo</dt>
+                <dd>{aggregateMode}</dd>
+              </div>
+            </dl>
+            <SigescHubClient
+              hasConnection={true}
+              currentHost={connection.host}
+              lastUsersSyncAt={connection.lastUsersSyncAt?.toISOString() ?? null}
+              lastError={connection.lastError}
+            />
+          </>
         ) : (
           <p className="font-ui mt-2 text-sm text-amber-800">
             Sem ligação Aggregate. Conclua o onboarding institucional.

@@ -8,9 +8,18 @@ export type ReportFilters = {
   to?: Date;
 };
 
+const MAX_REPORT_RANGE_DAYS = 366;
+
 function range(filters: ReportFilters) {
   const from = filters.from ? toDateOnlyUtc(filters.from) : toDateOnlyUtc(new Date());
   const toRaw = filters.to ? toDateOnlyUtc(filters.to) : new Date(from);
+  if (toRaw < from) {
+    throw new Error("Report end date must be on or after start date");
+  }
+  const spanDays = Math.round((toRaw.getTime() - from.getTime()) / 86_400_000) + 1;
+  if (spanDays > MAX_REPORT_RANGE_DAYS) {
+    throw new Error(`Report date range cannot exceed ${MAX_REPORT_RANGE_DAYS} days`);
+  }
   const toExclusive = new Date(toRaw);
   toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
   return { from, to: toRaw, toExclusive };
@@ -39,7 +48,7 @@ export async function getOccupancyReport(
 ) {
   const { from, to, toExclusive } = range(filters);
   const hotelScope = filters.hotelId
-    ? { hotelId: filters.hotelId }
+    ? { hotelId: filters.hotelId, hotel: { institutionId: ctx.institutionId } }
     : { hotel: { institutionId: ctx.institutionId } };
 
   const [totalRooms, occupiedNow, blockedMaint, dirtyOrInspecting, staysInRange] =
@@ -371,6 +380,7 @@ export async function getCommerceOpsReport(
         institutionId: ctx.institutionId,
         createdAt: { gte: from, lt: toExclusive },
         status: { not: "VOIDED" },
+        ...(filters.hotelId ? { stay: { hotelId: filters.hotelId } } : {}),
       },
       select: {
         status: true,

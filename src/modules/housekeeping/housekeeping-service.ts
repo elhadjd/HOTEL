@@ -169,9 +169,27 @@ export async function startHousekeepingTask(
   });
 }
 
+const OPEN_HK_STATUSES = [
+  "PENDING",
+  "ASSIGNED",
+  "IN_PROGRESS",
+  "INSPECTION_REQUIRED",
+  "REJECTED",
+] as const;
+
+export function deriveHousekeepingRoomStatus(
+  remainingOpenTaskStatuses: string[],
+): "CLEAN" | "INSPECTING" | "CLEANING" | "DIRTY" {
+  if (remainingOpenTaskStatuses.length === 0) return "CLEAN";
+  if (remainingOpenTaskStatuses.includes("REJECTED")) return "DIRTY";
+  if (remainingOpenTaskStatuses.includes("IN_PROGRESS")) return "CLEANING";
+  if (remainingOpenTaskStatuses.includes("INSPECTION_REQUIRED")) return "INSPECTING";
+  return "DIRTY";
+}
+
 /**
  * Complete cleaning. When requireInspection is true (default), room stays DIRTY/INSPECTING
- * until inspection approval. When false, room becomes CLEAN immediately.
+ * until inspection approval. When false, room becomes CLEAN only if no other open tasks remain.
  * Never marks a dirty room as ready without one of these paths.
  */
 export async function completeHousekeepingTask(
@@ -200,10 +218,19 @@ export async function completeHousekeepingTask(
         data: { housekeepingStatus: "INSPECTING" },
       });
     } else {
-      // Completion without inspection is an explicit policy choice — set CLEAN
+      const otherOpen = await tx.housekeepingTask.findMany({
+        where: {
+          roomId: task.roomId,
+          id: { not: taskId },
+          status: { in: [...OPEN_HK_STATUSES] },
+        },
+        select: { status: true },
+      });
       await tx.room.update({
         where: { id: task.roomId },
-        data: { housekeepingStatus: "CLEAN" },
+        data: {
+          housekeepingStatus: deriveHousekeepingRoomStatus(otherOpen.map((t) => t.status)),
+        },
       });
     }
 
@@ -277,9 +304,19 @@ export async function inspectHousekeepingTask(
         completedAt: task.completedAt ?? new Date(),
       },
     });
+    const otherOpen = await tx.housekeepingTask.findMany({
+      where: {
+        roomId: task.roomId,
+        id: { not: taskId },
+        status: { in: [...OPEN_HK_STATUSES] },
+      },
+      select: { status: true },
+    });
     await tx.room.update({
       where: { id: task.roomId },
-      data: { housekeepingStatus: "CLEAN" },
+      data: {
+        housekeepingStatus: deriveHousekeepingRoomStatus(otherOpen.map((t) => t.status)),
+      },
     });
     await tx.auditLog.create({
       data: {

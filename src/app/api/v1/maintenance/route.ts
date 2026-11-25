@@ -38,6 +38,7 @@ const createSchema = z.object({
   category: z.string().max(64).optional(),
   priority: z.enum(["LOW", "NORMAL", "HIGH", "CRITICAL"]).optional(),
   blocksRoom: z.boolean().optional(),
+  blockStatus: z.enum(["UNDER_MAINTENANCE", "OUT_OF_SERVICE"]).optional(),
   assignedTo: z.string().max(128).optional(),
   materialsNotes: z.string().max(5000).optional(),
   materialsCost: z.number().nonnegative().optional(),

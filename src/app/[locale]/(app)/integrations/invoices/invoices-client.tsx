@@ -147,6 +147,7 @@ export function InvoicesClient({
   const [lines, setLines] = useState<LineDraft[]>([]);
   const [productPick, setProductPick] = useState("");
   const [mappingOptions, setMappingOptions] = useState(mappings);
+  const [submitNow, setSubmitNow] = useState(true);
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedQ(q.trim()), 300);
@@ -323,11 +324,39 @@ export function InvoicesClient({
         setError(data.error ?? "Falha ao criar rascunho");
         return;
       }
-      setMessage(`Rascunho ${data.invoice.externalId} criado. Submeta para o SIGESC.`);
+      const createdId = data.invoice.id as string;
+      if (submitNow) {
+        const subRes = await fetch(`/api/v1/integrations/sigesc/invoices/${createdId}/submit`, {
+          method: "POST",
+        });
+        const subData = await subRes.json().catch(() => ({}));
+        if (!subRes.ok) {
+          setError(
+            `Rascunho ${data.invoice.externalId} criado localmente, mas o envio ao SIGESC falhou: ${subData.error ?? "erro remoto"}`,
+          );
+          setCreateOpen(false);
+          setLines([]);
+          router.refresh();
+          router.push(`/integrations/invoices/${createdId}`);
+          return;
+        }
+        if (subData.reconciliationRequired || subData.invoice?.status === "RECONCILIATION_REQUIRED") {
+          setError(
+            subData.warning ??
+              `Rascunho ${data.invoice.externalId} aguarda reconciliação com o SIGESC.`,
+          );
+        } else {
+          setMessage(
+            `Documento ${data.invoice.externalId} criado e confirmado no SIGESC (${subData.invoice?.saleKey ?? ""}).`,
+          );
+        }
+      } else {
+        setMessage(`Rascunho ${data.invoice.externalId} criado localmente. Submeta para o SIGESC.`);
+      }
       setCreateOpen(false);
       setLines([]);
       router.refresh();
-      router.push(`/integrations/invoices/${data.invoice.id}`);
+      router.push(`/integrations/invoices/${createdId}`);
     });
   }
 
@@ -410,10 +439,37 @@ export function InvoicesClient({
               tenant.
             </p>
           </div>
-          <Button type="button" onClick={() => setCreateOpen(true)} className="gap-2">
-            <Plus className="h-4 w-4" />
-            Nova cotação / proforma
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={pending}
+              onClick={() => {
+                setError(null);
+                setMessage(null);
+                startTransition(async () => {
+                  const res = await fetch("/api/v1/integrations/sigesc/invoices/sync", {
+                    method: "POST",
+                  });
+                  const data = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    setError(data.error ?? "Falha ao sincronizar estados no SIGESC");
+                    return;
+                  }
+                  setMessage(
+                    `Estados sincronizados no SIGESC: ${data.checked} verificados, ${data.updated} actualizados${data.failed ? `, ${data.failed} com falha` : ""}.`,
+                  );
+                  router.refresh();
+                });
+              }}
+            >
+              Sincronizar estados SIGESC
+            </Button>
+            <Button type="button" onClick={() => setCreateOpen(true)} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Nova cotação / proforma
+            </Button>
+          </div>
         </div>
 
         <div className="font-ui mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
@@ -447,9 +503,12 @@ export function InvoicesClient({
             >
               <option value="">Todos</option>
               <option value="DRAFT">DRAFT</option>
+              <option value="PENDING_SUBMISSION">PENDING_SUBMISSION</option>
+              <option value="SUBMITTING">SUBMITTING</option>
               <option value="CREATED">CREATED</option>
               <option value="RECONCILIATION_REQUIRED">RECONCILIATION</option>
               <option value="FAILED_VALIDATION">FAILED_VALIDATION</option>
+              <option value="FAILED_FINAL">FAILED_FINAL</option>
             </select>
           </label>
           <label className="block">
@@ -818,13 +877,25 @@ export function InvoicesClient({
                 </section>
               </div>
 
-              <div className="border-t border-sand-200 bg-white px-5 py-4">
+              <div className="space-y-3 border-t border-sand-200 bg-white px-5 py-4">
+                <label className="font-ui flex items-center gap-2 text-sm text-ink-900">
+                  <input
+                    type="checkbox"
+                    checked={submitNow}
+                    onChange={(e) => setSubmitNow(e.target.checked)}
+                  />
+                  Enviar imediatamente para o SIGESC após criar
+                </label>
                 <Button
                   type="submit"
                   className="w-full"
                   disabled={pending || mappingOptions.length === 0}
                 >
-                  {pending ? "A gravar…" : "Criar rascunho e abrir"}
+                  {pending
+                    ? "A processar…"
+                    : submitNow
+                      ? "Criar e enviar ao SIGESC"
+                      : "Criar rascunho local"}
                 </Button>
               </div>
             </form>

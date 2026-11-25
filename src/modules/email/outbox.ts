@@ -42,15 +42,22 @@ export async function enqueueEmail(
 export async function dispatchEmailOutbox(
   prisma: PrismaClient,
   limit = 20,
+  onlyId?: string,
 ): Promise<{ sent: number; failed: number }> {
   const due = await prisma.emailOutbox.findMany({
-    where: {
-      status: { in: ["PENDING", "FAILED"] },
-      availableAt: { lte: new Date() },
-      attempts: { lt: 5 },
-    },
+    where: onlyId
+      ? {
+          id: onlyId,
+          status: { in: ["PENDING", "FAILED"] },
+          attempts: { lt: 5 },
+        }
+      : {
+          status: { in: ["PENDING", "FAILED"] },
+          availableAt: { lte: new Date() },
+          attempts: { lt: 5 },
+        },
     orderBy: { createdAt: "asc" },
-    take: limit,
+    take: onlyId ? 1 : limit,
   });
 
   let sent = 0;
@@ -138,7 +145,7 @@ export async function scheduleEmailDispatch(prisma: PrismaClient): Promise<void>
   await flushEmailOutboxInRequest(prisma);
 }
 
-/** Enqueue then immediately send; throws if the send fails. */
+/** Enqueue then immediately send this exact outbox row; throws if the send fails. */
 export async function enqueueAndSendEmail(
   prisma: PrismaClient,
   input: {
@@ -152,7 +159,7 @@ export async function enqueueAndSendEmail(
   },
 ): Promise<{ outboxId: string }> {
   const row = await enqueueEmail(prisma, input);
-  const result = await dispatchEmailOutbox(prisma, 5);
+  const result = await dispatchEmailOutbox(prisma, 1, row.id);
   const fresh = await prisma.emailOutbox.findUnique({ where: { id: row.id } });
   if (!fresh || fresh.status !== "SENT") {
     throw new Error(
