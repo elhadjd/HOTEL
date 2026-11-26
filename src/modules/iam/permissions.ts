@@ -35,6 +35,7 @@ export const PERMISSIONS = [
   { code: "integrations.customers", module: "integrations", action: "customers" },
   { code: "integrations.products", module: "integrations", action: "products" },
   { code: "integrations.invoices", module: "integrations", action: "invoices" },
+  { code: "integrations.invoices.settle", module: "integrations", action: "invoices_settle" },
 ] as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[number]["code"];
@@ -72,6 +73,7 @@ export const SYSTEM_ROLES = [
       "stay_accounts.manage",
       "integrations.customers",
       "integrations.invoices",
+      "integrations.invoices.settle",
     ] satisfies PermissionCode[],
   },
   {

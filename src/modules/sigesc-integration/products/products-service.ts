@@ -124,6 +124,28 @@ export async function updateCentralProduct(
   await getCentralProduct(prisma, ctx, productId);
   const client = getAggregateClient(resolved.connection.host);
   const result = await client.updateProduct(resolved.apiKey, productId, input);
+  assertCompanyMatchesConnection(resolved, result.product.company_id);
+
+  const now = new Date();
+  const nextSalePrice = result.product.sale_price ?? result.product.price;
+  const mappingUpdate = await prisma.productCatalogMapping.updateMany({
+    where: {
+      institutionId: ctx.institutionId,
+      centralProductId: String(result.product.id),
+      centralCompanyId: resolved.companyId,
+    },
+    data: {
+      centralName: result.product.name,
+      ...(nextSalePrice !== null && nextSalePrice !== undefined
+        ? { centralSalePrice: Number(nextSalePrice) }
+        : {}),
+      centralTaxPercent:
+        result.product.tax_percent != null ? Number(result.product.tax_percent) : null,
+      centralPriceVerifiedAt: now,
+      lastSyncedAt: now,
+      lastError: null,
+    },
+  });
 
   await prisma.auditLog.create({
     data: {
@@ -132,11 +154,20 @@ export async function updateCentralProduct(
       action: "UPDATE",
       entityType: "CentralProduct",
       entityId: String(productId),
-      metadata: { fields: Object.keys(input) },
+      metadata: {
+        fields: Object.keys(input),
+        salePrice: nextSalePrice ?? null,
+        taxPercent: result.product.tax_percent ?? null,
+        updatedMappingsCount: mappingUpdate.count,
+      },
     },
   });
 
-  return result;
+  return {
+    ...result,
+    updatedMappingsCount: mappingUpdate.count,
+    verifiedAt: now.toISOString(),
+  };
 }
 
 export async function listCatalogMappings(

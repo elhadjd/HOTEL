@@ -76,10 +76,15 @@ export async function prepareCheckOut(
           id: eligibleInvoice.id,
           externalId: eligibleInvoice.externalId,
           saleKey: eligibleInvoice.saleKey,
+          orderReference: eligibleInvoice.orderReference,
           status: eligibleInvoice.status,
           centralState: eligibleInvoice.centralState,
           centralTotal:
             eligibleInvoice.centralTotal != null ? Number(eligibleInvoice.centralTotal) : null,
+          centralRestPayable:
+            eligibleInvoice.centralRestPayable != null
+              ? Number(eligibleInvoice.centralRestPayable)
+              : null,
           currency: eligibleInvoice.currency,
         }
       : null,
@@ -352,6 +357,23 @@ export async function completeCheckOut(
       },
     });
 
+    const checkoutInvoice = invoiceId
+      ? await tx.invoiceIntegration.findUnique({
+          where: { id: invoiceId },
+          select: {
+            id: true,
+            externalId: true,
+            saleKey: true,
+            orderReference: true,
+            status: true,
+            centralState: true,
+            centralTotal: true,
+            centralRestPayable: true,
+            currency: true,
+          },
+        })
+      : null;
+
     return {
       stay: await tx.stay.findUniqueOrThrow({
         where: { id: stayId },
@@ -359,6 +381,17 @@ export async function completeCheckOut(
       }),
       handoff,
       invoiceId,
+      invoice: checkoutInvoice
+        ? {
+            ...checkoutInvoice,
+            centralTotal:
+              checkoutInvoice.centralTotal != null ? Number(checkoutInvoice.centralTotal) : null,
+            centralRestPayable:
+              checkoutInvoice.centralRestPayable != null
+                ? Number(checkoutInvoice.centralRestPayable)
+                : null,
+          }
+        : null,
     };
   });
 }

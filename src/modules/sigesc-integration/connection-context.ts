@@ -2,7 +2,13 @@ import type { AggregateConnection, PrismaClient } from "@prisma/client";
 import { decryptAggregateKey } from "./crypto";
 import { AggregateApiError } from "./types";
 
-export type AggregateScope = "customers" | "products" | "sales" | "users" | "onboarding";
+export type AggregateScope =
+  | "customers"
+  | "products"
+  | "sales"
+  | "payments"
+  | "users"
+  | "onboarding";
 
 export type ResolvedAggregateConnection = {
   connection: AggregateConnection;
@@ -73,9 +79,22 @@ export function assertAggregateScope(
   need: AggregateScope,
 ): void {
   const scopes = resolved.scopes.map((s) => s.toLowerCase());
-  if (scopes.includes("all") || scopes.includes(need)) return;
+  if (scopes.includes("all") || scopes.includes("*") || scopes.includes(need)) return;
   throw new AggregateConnectionError(
     `Aggregate key lacks required scope: ${need}`,
+    403,
+  );
+}
+
+export function assertAnyAggregateScope(
+  resolved: ResolvedAggregateConnection,
+  needs: AggregateScope[],
+): void {
+  const scopes = resolved.scopes.map((s) => s.toLowerCase());
+  if (scopes.includes("all") || scopes.includes("*")) return;
+  if (needs.some((n) => scopes.includes(n))) return;
+  throw new AggregateConnectionError(
+    `Aggregate key lacks required scope: ${needs.join(" or ")}`,
     403,
   );
 }

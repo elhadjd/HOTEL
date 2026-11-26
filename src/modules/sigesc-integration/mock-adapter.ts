@@ -5,8 +5,10 @@ import type {
   AggregateCustomersQuery,
   AggregateCustomerWriteInput,
   AggregateEnvelope,
+  AggregateMeData,
   AggregateOnboardingData,
   AggregateOnboardingQuery,
+  AggregatePaymentMethodsData,
   AggregateProduct,
   AggregateProductMutationResult,
   AggregateProductsQuery,
@@ -15,6 +17,11 @@ import type {
   AggregateSaleCreateInput,
   AggregateSaleItemInput,
   AggregateSaleMutationResult,
+  AggregateSalePayment,
+  AggregateSalePaymentInput,
+  AggregateSalePaymentResult,
+  AggregateSalePublishInput,
+  AggregateSalePublishResult,
   AggregateSalesQuery,
   AggregateUser,
   AggregateUsersQuery,
@@ -215,14 +222,81 @@ export const MOCK_PRODUCTS_FIXTURE: AggregateProduct[] = [
   },
 ];
 
+export const MOCK_PAYMENT_METHODS_FIXTURE: AggregatePaymentMethodsData = {
+  payment_methods: [
+    {
+      id: 1,
+      company_id: 44,
+      name: "Dinheiro",
+      icon: "cash-default",
+      is_cash: true,
+      status: true,
+      default_bank_account_id: 10,
+      bank_accounts: [{ id: 10, name: "Caixa Principal", reference: "CASH-44", is_cash: true }],
+    },
+    {
+      id: 2,
+      company_id: 44,
+      name: "Multicaixa TPA",
+      icon: null,
+      is_cash: false,
+      status: true,
+      default_bank_account_id: 11,
+      bank_accounts: [
+        {
+          id: 11,
+          name: "Banco BAI Operações",
+          reference: "BAI-44",
+          iban: "AO06004000001234567890123",
+          is_cash: false,
+        },
+      ],
+    },
+    {
+      id: 3,
+      company_id: 44,
+      name: "Transferência Bancária",
+      icon: null,
+      is_cash: false,
+      status: true,
+      default_bank_account_id: 11,
+      bank_accounts: [
+        {
+          id: 11,
+          name: "Banco BAI Operações",
+          reference: "BAI-44",
+          iban: "AO06004000001234567890123",
+          is_cash: false,
+        },
+      ],
+    },
+  ],
+  bank_accounts: [
+    { id: 10, company_id: 44, name: "Caixa Principal", reference: "CASH-44", is_cash: true },
+    {
+      id: 11,
+      company_id: 44,
+      name: "Banco BAI Operações",
+      reference: "BAI-44",
+      iban: "AO06004000001234567890123",
+      is_cash: false,
+    },
+  ],
+};
+
 let mockCustomerSeq = 600;
 const mockCustomerStore: AggregateCustomer[] = structuredClone(MOCK_CUSTOMERS_FIXTURE);
 let mockProductSeq = 1000;
 const mockProductStore: AggregateProduct[] = structuredClone(MOCK_PRODUCTS_FIXTURE);
 let mockSaleSeq = 100;
+let mockPaymentSeq = 1;
+let mockDocSeq = 1;
 const mockSaleStore: AggregateSale[] = [];
 /** external_id → sale id */
 const mockSaleByExternal = new Map<string, number>();
+const mockAppendKeys = new Set<string>();
+const mockPublishKeys = new Map<string, number>();
+const mockPaymentKeys = new Map<string, { saleId: number; payment: AggregateSalePayment; payloadSig: string }>();
 
 export function resetMockCustomerStore(): void {
   mockCustomerStore.length = 0;
@@ -239,7 +313,12 @@ export function resetMockProductStore(): void {
 export function resetMockSaleStore(): void {
   mockSaleStore.length = 0;
   mockSaleByExternal.clear();
+  mockAppendKeys.clear();
+  mockPublishKeys.clear();
+  mockPaymentKeys.clear();
   mockSaleSeq = 100;
+  mockPaymentSeq = 1;
+  mockDocSeq = 1;
 }
 
 export function resetAllMockAggregateStores(): void {
@@ -248,7 +327,7 @@ export function resetAllMockAggregateStores(): void {
   resetMockSaleStore();
 }
 
-type ScopeNeed = "onboarding" | "users" | "customers" | "products" | "sales";
+type ScopeNeed = "onboarding" | "users" | "customers" | "products" | "sales" | "payments";
 
 function authorize(apiKey: string, need: ScopeNeed): void {
   const key = apiKey.trim();
@@ -854,9 +933,14 @@ export class MockAggregateAdapter implements AggregatePort {
     apiKey: string,
     saleKey: string,
     items: AggregateSaleItemInput[],
+    options?: { idempotencyKey?: string },
   ): Promise<AggregateSale> {
     authorize(apiKey, "sales");
     const sale = await this.getSale(apiKey, saleKey);
+    const idempotencyKey = options?.idempotencyKey?.trim();
+    if (idempotencyKey && mockAppendKeys.has(`${sale.id}:${idempotencyKey}`)) {
+      return structuredClone(sale);
+    }
     if (sale.state !== "Cotação" && sale.state !== "Proforma") {
       throw new AggregateApiError("Sale is not editable in this state", 422, 422);
     }
@@ -874,27 +958,244 @@ export class MockAggregateAdapter implements AggregatePort {
     const idx = mockSaleStore.findIndex((s) => s.id === sale.id);
     const merged: AggregateSale = {
       ...sale,
-      items: [...(sale.items ?? []), ...(patch.items ?? []).map((it, i) => ({
-        ...it,
-        id: (sale.items?.length ?? 0) + i + 1,
-      }))],
-      total: (sale.total ?? 0) + (patch.total ?? 0),
-      subtotal: (sale.subtotal ?? 0) + (patch.subtotal ?? 0),
-      tax: (sale.tax ?? 0) + (patch.tax ?? 0),
-      rest_payable: (sale.rest_payable ?? 0) + (patch.rest_payable ?? 0),
+      items: [
+        ...(sale.items ?? []),
+        ...(patch.items ?? []).map((it, i) => ({
+          ...it,
+          id: (sale.items?.length ?? 0) + i + 1,
+        })),
+      ],
+      total: Number(((sale.total ?? 0) + (patch.total ?? 0)).toFixed(2)),
+      subtotal: Number(((sale.subtotal ?? 0) + (patch.subtotal ?? 0)).toFixed(2)),
+      tax: Number(((sale.tax ?? 0) + (patch.tax ?? 0)).toFixed(2)),
+      rest_payable: Number(((sale.rest_payable ?? 0) + (patch.rest_payable ?? 0)).toFixed(2)),
     };
     mockSaleStore[idx] = merged;
+    if (idempotencyKey) mockAppendKeys.add(`${sale.id}:${idempotencyKey}`);
     return structuredClone(merged);
   }
 
-  async fetchMe(apiKey: string): Promise<unknown> {
+  async listPaymentMethods(
+    apiKey: string,
+    query?: { company_id?: number | string },
+  ): Promise<AggregatePaymentMethodsData> {
+    authorize(apiKey, "sales");
+    if (query?.company_id !== undefined && query.company_id !== "") {
+      assertCompanyLinked(query.company_id);
+    }
+    return structuredClone(MOCK_PAYMENT_METHODS_FIXTURE);
+  }
+
+  async publishSale(
+    apiKey: string,
+    saleKey: string,
+    body?: AggregateSalePublishInput,
+  ): Promise<{ httpStatus: number; result: AggregateSalePublishResult }> {
+    authorize(apiKey, "sales");
+    const sale = await this.getSale(apiKey, saleKey);
+    const idx = mockSaleStore.findIndex((s) => s.id === sale.id);
+    const idemKey = body?.idempotency_key?.trim();
+
+    if (idemKey && mockPublishKeys.has(idemKey)) {
+      const prevSaleId = mockPublishKeys.get(idemKey)!;
+      if (prevSaleId !== sale.id) {
+        throw new AggregateApiError("Idempotency key was already used for a different sale.", 409, 409);
+      }
+      return {
+        httpStatus: 200,
+        result: {
+          published: false,
+          idempotent: true,
+          document_number: sale.document_number ?? null,
+          sale: structuredClone(sale),
+        },
+      };
+    }
+
+    if (sale.state !== "Cotação" && sale.state !== "Proforma") {
+      throw new AggregateApiError(
+        `Invoice cannot be published from state "${sale.state}".`,
+        409,
+        409,
+      );
+    }
+
+    const prefix =
+      body?.document_type === "advance" || body?.document_type === "FA"
+        ? "FA"
+        : body?.document_type === "global" || body?.document_type === "FG"
+          ? "FG"
+          : body?.document_type === "generic" || body?.document_type === "GF"
+            ? "GF"
+            : "FT";
+    const year = new Date().getFullYear();
+    const docNo = `${prefix} SG${year}/${mockDocSeq++}`;
+
+    const published: AggregateSale = {
+      ...sale,
+      document_number: docNo,
+      order_number: docNo,
+      document_type: prefix,
+      state: "Publicado",
+      payment_status: "unpaid",
+      rest_payable: sale.total ?? 0,
+      collected: 0,
+      confirmed_at: new Date().toISOString(),
+    };
+    mockSaleStore[idx] = published;
+    if (idemKey) mockPublishKeys.set(idemKey, sale.id);
+
+    if (idemKey?.endsWith("-AMBIGUOUS-TIMEOUT")) {
+      throw new AggregateApiError("SIGESC Aggregate request timed out", 504, 504);
+    }
+
+    return {
+      httpStatus: 200,
+      result: {
+        published: true,
+        idempotent: false,
+        document_number: docNo,
+        sale: structuredClone(published),
+      },
+    };
+  }
+
+  async recordSalePayment(
+    apiKey: string,
+    saleKey: string,
+    body: AggregateSalePaymentInput,
+  ): Promise<{ httpStatus: number; result: AggregateSalePaymentResult }> {
+    authorize(apiKey, "sales");
+    const sale = await this.getSale(apiKey, saleKey);
+    const idx = mockSaleStore.findIndex((s) => s.id === sale.id);
+    const idemKey = (body.idempotency_key || body.external_payment_id || "").trim();
+    if (!idemKey) {
+      throw new AggregateApiError("idempotency_key is required for sale payments", 422, 422);
+    }
+
+    const amount = Number(Number(body.amount).toFixed(2));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new AggregateApiError("amount must be greater than 0.", 422, 422);
+    }
+
+    const payloadSig = `${sale.id}:${amount.toFixed(2)}:${body.payment_method_id}`;
+    const prior = mockPaymentKeys.get(idemKey);
+    if (prior) {
+      if (prior.saleId !== sale.id || prior.payloadSig !== payloadSig) {
+        throw new AggregateApiError(
+          "Payment idempotency key reused with a different sale, amount or payment method.",
+          409,
+          409,
+        );
+      }
+      return {
+        httpStatus: 200,
+        result: {
+          created: false,
+          idempotent: true,
+          payment: structuredClone(prior.payment),
+          sale: structuredClone(sale),
+        },
+      };
+    }
+
+    if (sale.state === "Anulado" || sale.state === "Cancelado") {
+      throw new AggregateApiError("Cannot record payment on cancelled invoice.", 409, 409);
+    }
+    if (sale.state === "Pago" || (sale.rest_payable ?? 0) <= 0.004) {
+      throw new AggregateApiError("Invoice is already fully paid.", 409, 409);
+    }
+    if (sale.state === "Cotação" || sale.state === "Proforma") {
+      throw new AggregateApiError(
+        "Invoice must be published before recording payments.",
+        409,
+        409,
+      );
+    }
+
+    const method = MOCK_PAYMENT_METHODS_FIXTURE.payment_methods.find(
+      (m) => m.id === Number(body.payment_method_id),
+    );
+    if (!method) {
+      throw new AggregateApiError("Payment method not found or inactive for this company.", 422, 422);
+    }
+
+    const currentRest = Number((sale.rest_payable ?? sale.total ?? 0).toFixed(2));
+    if (amount > currentRest + 0.005) {
+      throw new AggregateApiError(
+        `Payment amount (${amount}) exceeds remaining payable balance (${currentRest}).`,
+        422,
+        422,
+      );
+    }
+
+    const remaining = Number(Math.max(0, currentRest - amount).toFixed(2));
+    const isPaid = remaining <= 0.005;
+    const nextRest = isPaid ? 0 : remaining;
+    const nextCollected = Number(((sale.total ?? 0) - nextRest).toFixed(2));
+
+    const paymentId = mockPaymentSeq++;
+    const year = new Date().getFullYear();
+    const payment: AggregateSalePayment = {
+      id: paymentId,
+      amount,
+      remaining_payable: nextRest,
+      total_payments: nextRest,
+      date: body.date ?? new Date().toISOString().slice(0, 10),
+      status: "completed",
+      type: body.type ?? "payment",
+      number: `RC SG${year}/${paymentId}`,
+      notes: [body.reference ? `Ref: ${body.reference}` : null, body.notes ?? null]
+        .filter(Boolean)
+        .join(" · ") || null,
+      bank_account_id: body.bank_account_id ?? method.default_bank_account_id ?? null,
+      idempotency_key: idemKey,
+      method: { id: method.id, name: method.name },
+    };
+
+    const updated: AggregateSale = {
+      ...sale,
+      state: isPaid ? "Pago" : "Publicado",
+      payment_status: isPaid ? "paid" : "partial",
+      rest_payable: nextRest,
+      collected: nextCollected,
+      payments: [...(sale.payments ?? []), payment],
+      payments_count: (sale.payments?.length ?? 0) + 1,
+    };
+    mockSaleStore[idx] = updated;
+    mockPaymentKeys.set(idemKey, { saleId: sale.id, payment, payloadSig });
+
+    if (idemKey.endsWith("-AMBIGUOUS-TIMEOUT")) {
+      throw new AggregateApiError("SIGESC Aggregate request timed out", 504, 504);
+    }
+
+    return {
+      httpStatus: 201,
+      result: {
+        created: true,
+        idempotent: false,
+        payment: structuredClone(payment),
+        sale: structuredClone(updated),
+      },
+    };
+  }
+
+  async fetchMe(apiKey: string): Promise<AggregateMeData> {
     authorize(apiKey, "onboarding");
     return {
-      success: true,
-      data: {
-        key: MOCK_AGGREGATE_FIXTURE.key,
-        company_ids: MOCK_AGGREGATE_FIXTURE.company_ids,
-      },
+      key: structuredClone(MOCK_AGGREGATE_FIXTURE.key),
+      owner_company_id: MOCK_AGGREGATE_FIXTURE.key.owner_company_id,
+      company_ids: [...MOCK_AGGREGATE_FIXTURE.company_ids],
+      companies: MOCK_AGGREGATE_FIXTURE.companies.map((c) => ({
+        id: c.id,
+        name: c.name,
+        reference: c.reference ?? c.id,
+        email: c.email ?? null,
+        nif: c.nif ?? null,
+        platform_status: "active",
+        is_owner: Boolean(c.is_owner),
+        role: c.is_owner ? "owner" : "linked",
+      })),
     };
   }
 }

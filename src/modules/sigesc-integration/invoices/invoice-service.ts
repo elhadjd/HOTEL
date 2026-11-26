@@ -4,10 +4,16 @@ import type { TenantContext } from "@/modules/tenancy/tenant";
 import { getAggregateClient } from "../client";
 import {
   assertAggregateScope,
+  assertAnyAggregateScope,
   assertCompanyMatchesConnection,
   resolveInstitutionAggregateConnection,
 } from "../connection-context";
-import type { AggregateSaleCreateInput, AggregateSaleItemInput } from "../types";
+import type {
+  AggregateSaleCreateInput,
+  AggregateSaleItemInput,
+  AggregateSalePayment,
+  AggregateSalePublishInput,
+} from "../types";
 import { AggregateApiError } from "../types";
 import { verifyCentralProductPrice } from "../products/products-service";
 import { isGuestCustomerLinked } from "@/modules/guests/guest-service";
@@ -21,16 +27,39 @@ const SUBMITTABLE: Array<InvoiceIntegration["status"]> = [
   "RECONCILIATION_REQUIRED",
 ];
 
-/** Aggregate states that still allow POST /sales/{sale_key}/items */
+/** Aggregate states that still allow POST /sales/{sale_key}/items and POST /sales/{sale_key}/publish */
 export const EDITABLE_CENTRAL_STATES = new Set(["Cotação", "Proforma"]);
 
-/** Central states that must never accept financial mutations */
+/** Central states eligible to receive payments (when rest_payable > 0) */
+export const PAYABLE_CENTRAL_STATES = new Set(["Publicado", "Publicada", "Parcial"]);
+
+/** Terminal paid states */
+export const PAID_CENTRAL_STATES = new Set(["Pago", "Paga", "Paid"]);
+
+/** Terminal cancelled states */
+export const CANCELLED_CENTRAL_STATES = new Set([
+  "Anulado",
+  "Anulada",
+  "Cancelado",
+  "Cancelada",
+  "Cancelled",
+  "Recusado",
+]);
+
+/** Central states that must never accept line-item mutations */
 export const READONLY_CENTRAL_STATES = new Set([
   "Publicado",
+  "Publicada",
+  "Parcial",
   "Pago",
+  "Paga",
+  "Paid",
   "Cancelado",
+  "Cancelada",
+  "Cancelled",
   "Recusado",
   "Anulado",
+  "Anulada",
 ]);
 
 export type InvoiceLineDraft = {
@@ -572,6 +601,9 @@ export type NormalizedInvoiceLine = {
 function mergeRemoteSaleItems(
   existingLinesJson: unknown,
   sale: {
+    document_number?: string | null;
+    order_number?: string | null;
+    payment_status?: string | null;
     items?: Array<{
       quantity?: number;
       unit_price?: number;
@@ -580,27 +612,52 @@ function mergeRemoteSaleItems(
       line_total?: number;
       product?: { id?: number; name?: string; code?: string; sale_price?: number };
     }>;
+    payments?: AggregateSalePayment[];
   },
 ): Prisma.InputJsonValue | undefined {
-  if (!Array.isArray(sale.items) || sale.items.length === 0) return undefined;
+  const hasItems = Array.isArray(sale.items) && sale.items.length > 0;
+  const hasPayments = Array.isArray(sale.payments);
+  const hasMeta = Boolean(sale.document_number || sale.order_number || sale.payment_status);
+  if (!hasItems && !hasPayments && !hasMeta) return undefined;
+
   const prior =
     existingLinesJson && typeof existingLinesJson === "object"
       ? (existingLinesJson as Record<string, unknown>)
       : {};
-  const centralItems: NormalizedInvoiceLine[] = sale.items.map((item) => ({
-    product_id: Number(item.product?.id ?? 0),
-    quantity: Number(item.quantity ?? 0),
-    unit_price: Number(item.unit_price ?? item.product?.sale_price ?? 0),
-    discount: item.discount != null ? Number(item.discount) : 0,
-    centralName: item.product?.name ?? null,
-    localCode: item.product?.code ?? null,
-    tax_percent: item.tax_percent != null ? Number(item.tax_percent) : null,
-    line_total: item.line_total != null ? Number(item.line_total) : undefined,
-  }));
-  return {
-    ...prior,
-    centralItems,
-  } as Prisma.InputJsonValue;
+
+  const next: Record<string, unknown> = { ...prior };
+  if (hasItems) {
+    const centralItems: NormalizedInvoiceLine[] = sale.items!.map((item) => ({
+      product_id: Number(item.product?.id ?? 0),
+      quantity: Number(item.quantity ?? 0),
+      unit_price: Number(item.unit_price ?? item.product?.sale_price ?? 0),
+      discount: item.discount != null ? Number(item.discount) : 0,
+      centralName: item.product?.name ?? null,
+      localCode: item.product?.code ?? null,
+      tax_percent: item.tax_percent != null ? Number(item.tax_percent) : null,
+      line_total: item.line_total != null ? Number(item.line_total) : undefined,
+    }));
+    next.centralItems = centralItems;
+  }
+  if (hasPayments) {
+    next.centralPayments = sale.payments;
+  }
+  if (sale.payment_status) {
+    next.centralPaymentStatus = sale.payment_status;
+  }
+  const docNo = sale.document_number ?? sale.order_number;
+  if (docNo) {
+    next.centralDocumentNumber = docNo;
+  }
+
+  return next as Prisma.InputJsonValue;
+}
+
+export function extractInvoicePayments(linesJson: unknown): AggregateSalePayment[] {
+  if (!linesJson || typeof linesJson !== "object") return [];
+  const obj = linesJson as { centralPayments?: unknown };
+  if (!Array.isArray(obj.centralPayments)) return [];
+  return obj.centralPayments as AggregateSalePayment[];
 }
 
 /**
@@ -628,6 +685,8 @@ export function extractInvoiceLines(linesJson: unknown): NormalizedInvoiceLine[]
 function persistSaleFields(sale: {
   id: number;
   sale_key: string;
+  document_number?: string | null;
+  order_number?: string | null;
   order_reference?: string | null;
   state: string;
   total?: number;
@@ -640,7 +699,7 @@ function persistSaleFields(sale: {
     status: "CREATED" as const,
     centralSaleId: String(sale.id),
     saleKey: sale.sale_key,
-    orderReference: sale.order_reference ?? null,
+    orderReference: sale.document_number ?? sale.order_number ?? sale.order_reference ?? null,
     centralState: sale.state,
     centralTotal: sale.total ?? null,
     centralSubtotal: sale.subtotal ?? null,
@@ -950,6 +1009,7 @@ export async function addItemsToInvoice(
         discount: l.discount,
         description: l.description,
       })),
+      { idempotencyKey: attemptToken },
     );
     assertEditableCentralState(sale.state);
     const prior =
@@ -1022,6 +1082,395 @@ export async function addItemsToInvoice(
       outcome: "ADD_ITEMS_FAILED",
       errorMessage: message,
       responseSummary: { token: attemptToken },
+    });
+    throw err;
+  }
+}
+
+export async function listCentralPaymentMethods(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+) {
+  const resolved = await resolveInstitutionAggregateConnection(prisma, ctx.institutionId);
+  assertAnyAggregateScope(resolved, ["sales", "payments"]);
+  const client = getAggregateClient(resolved.connection.host);
+  return client.listPaymentMethods(resolved.apiKey, {
+    company_id: resolved.companyNumericId,
+  });
+}
+
+function isAmbiguousNetworkError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : "";
+  if (err instanceof AggregateApiError) {
+    return (
+      err.status === 408 ||
+      err.status === 503 ||
+      err.status === 504 ||
+      /timeout|timed out|ETIMEDOUT|AbortError|unavailable|network/i.test(message)
+    );
+  }
+  return /timeout|timed out|ETIMEDOUT|AbortError|unavailable|network/i.test(message);
+}
+
+/**
+ * Publish/convert a Cotação or Proforma in SIGESC into an official immutable fiscal invoice (e.g. FT).
+ * Enforces idempotency via stable idempotencyKey and marks RECONCILIATION_REQUIRED on ambiguous timeout.
+ */
+export async function publishInvoice(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+  invoiceId: string,
+  options?: {
+    documentType?: AggregateSalePublishInput["document_type"];
+    idempotencyKey?: string;
+    dateDue?: string;
+    notes?: string;
+  },
+) {
+  const attemptToken =
+    options?.idempotencyKey?.trim() || `publish-${invoiceId}-${randomUUID()}`;
+
+  const invoice = await getInvoiceIntegration(prisma, ctx, invoiceId);
+  if (!invoice.saleKey || (invoice.status !== "CREATED" && invoice.status !== "RECONCILIATION_REQUIRED")) {
+    throw new Error("Invoice must be submitted to SIGESC before publishing");
+  }
+
+  const priorOk = invoice.attempts.find(
+    (a) => a.outcome === "PUBLISH_OK" && attemptTokenOf(a) === attemptToken,
+  );
+  if (priorOk) {
+    const refreshed = await refreshInvoiceFromCentral(prisma, ctx, invoiceId);
+    return {
+      invoice: refreshed,
+      published: false,
+      idempotent: true,
+      reconciliationRequired: false as const,
+      documentNumber: refreshed.orderReference,
+    };
+  }
+
+  // Verify live central status before mutation
+  const fresh = await refreshInvoiceFromCentral(prisma, ctx, invoiceId);
+  if (fresh.centralState === "Publicado" || fresh.centralState === "Pago") {
+    const hadPendingSameToken = invoice.attempts.some(
+      (a) => a.outcome === "PUBLISH_PENDING" && attemptTokenOf(a) === attemptToken,
+    );
+    if (hadPendingSameToken) {
+      await recordAttempt(prisma, invoiceId, {
+        outcome: "PUBLISH_OK",
+        httpStatus: 200,
+        remoteSaleKey: fresh.saleKey ?? undefined,
+        responseSummary: {
+          token: attemptToken,
+          reconciled: true,
+          state: fresh.centralState,
+          document_number: fresh.orderReference,
+        },
+      });
+      return {
+        invoice: fresh,
+        published: false,
+        idempotent: true,
+        reconciliationRequired: false as const,
+        documentNumber: fresh.orderReference,
+      };
+    }
+    throw new Error(`Document is already in state "${fresh.centralState}" and cannot be published again.`);
+  }
+  assertEditableCentralState(fresh.centralState);
+
+  const resolved = await resolveInstitutionAggregateConnection(prisma, ctx.institutionId);
+  assertAggregateScope(resolved, "sales");
+  const client = getAggregateClient(resolved.connection.host);
+
+  await recordAttempt(prisma, invoiceId, {
+    outcome: "PUBLISH_PENDING",
+    remoteSaleKey: fresh.saleKey ?? undefined,
+    responseSummary: {
+      token: attemptToken,
+      documentType: options?.documentType ?? "receipt",
+    },
+  });
+
+  try {
+    const { httpStatus, result } = await client.publishSale(resolved.apiKey, fresh.saleKey!, {
+      document_type: options?.documentType ?? "receipt",
+      idempotency_key: attemptToken,
+      date_due: options?.dateDue,
+      notes: options?.notes,
+    });
+    assertCompanyMatchesConnection(resolved, result.sale.company_id);
+
+    const syncedLinesJson = mergeRemoteSaleItems(fresh.linesJson, result.sale);
+    const updated = await prisma.invoiceIntegration.update({
+      where: { id: invoiceId },
+      data: {
+        ...persistSaleFields(result.sale),
+        ...(syncedLinesJson ? { linesJson: syncedLinesJson } : {}),
+        status: "CREATED",
+      },
+    });
+
+    await recordAttempt(prisma, invoiceId, {
+      outcome: "PUBLISH_OK",
+      httpStatus,
+      remoteSaleKey: result.sale.sale_key,
+      responseSummary: {
+        token: attemptToken,
+        published: result.published,
+        idempotent: result.idempotent,
+        document_number: result.document_number ?? result.sale.document_number ?? null,
+        state: result.sale.state,
+        rest_payable: result.sale.rest_payable,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        institutionId: ctx.institutionId,
+        actorUserId: ctx.userId,
+        action: "UPDATE",
+        entityType: "InvoiceIntegration",
+        entityId: invoiceId,
+        metadata: {
+          event: "invoice.published",
+          token: attemptToken,
+          saleKey: result.sale.sale_key,
+          documentNumber: result.document_number ?? result.sale.document_number ?? null,
+          centralState: result.sale.state,
+        },
+      },
+    });
+
+    return {
+      invoice: updated,
+      published: result.published,
+      idempotent: result.idempotent,
+      reconciliationRequired: false as const,
+      documentNumber: result.document_number ?? result.sale.document_number ?? updated.orderReference,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Publish failed";
+    if (isAmbiguousNetworkError(err)) {
+      const updated = await prisma.invoiceIntegration.update({
+        where: { id: invoiceId },
+        data: {
+          status: "RECONCILIATION_REQUIRED",
+          lastError: "Publicação sem confirmação do SIGESC (timeout/rede) — actualize o estado central antes de repetir.",
+        },
+      });
+      return {
+        invoice: updated,
+        published: false,
+        idempotent: false,
+        reconciliationRequired: true as const,
+        warning: updated.lastError,
+        documentNumber: updated.orderReference,
+      };
+    }
+
+    await recordAttempt(prisma, invoiceId, {
+      outcome: "PUBLISH_FAILED",
+      httpStatus: err instanceof AggregateApiError ? err.status : undefined,
+      errorMessage: message,
+      responseSummary: { token: attemptToken },
+    });
+    throw err;
+  }
+}
+
+/**
+ * Record a partial or full payment against a published SIGESC invoice.
+ * Requires a stable idempotencyKey to guarantee zero double-payments under retries/timeouts.
+ */
+export async function settleInvoicePayment(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+  invoiceId: string,
+  input: {
+    amount: number;
+    paymentMethodId: number;
+    bankAccountId?: number | null;
+    reference?: string;
+    notes?: string;
+    date?: string;
+    type?: "payment" | "advance";
+    idempotencyKey: string;
+  },
+) {
+  const idempotencyKey = input.idempotencyKey.trim();
+  if (!idempotencyKey) {
+    throw new Error("idempotencyKey is required for invoice settlement");
+  }
+  const amount = Number(Number(input.amount).toFixed(2));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Payment amount must be greater than zero");
+  }
+  if (!Number.isInteger(input.paymentMethodId) || input.paymentMethodId < 1) {
+    throw new Error("A valid SIGESC payment_method_id is required");
+  }
+
+  const invoice = await getInvoiceIntegration(prisma, ctx, invoiceId);
+  if (!invoice.saleKey || (invoice.status !== "CREATED" && invoice.status !== "RECONCILIATION_REQUIRED")) {
+    throw new Error("Invoice must be submitted and published in SIGESC before recording payments");
+  }
+
+  // Local idempotent hit check (avoid unnecessary remote call if already confirmed locally).
+  const priorOk = invoice.attempts.find(
+    (a) => a.outcome === "PAYMENT_OK" && attemptTokenOf(a) === idempotencyKey,
+  );
+  if (priorOk) {
+    const refreshed = await refreshInvoiceFromCentral(prisma, ctx, invoiceId);
+    return {
+      invoice: refreshed,
+      created: false,
+      idempotent: true,
+      reconciliationRequired: false as const,
+      payment: null,
+    };
+  }
+
+  // Always verify live central state & rest_payable before mutating.
+  const fresh = await refreshInvoiceFromCentral(prisma, ctx, invoiceId);
+  if (CANCELLED_CENTRAL_STATES.has(fresh.centralState ?? "")) {
+    throw new Error(`Cannot record payment on cancelled invoice ("${fresh.centralState}").`);
+  }
+  if (EDITABLE_CENTRAL_STATES.has(fresh.centralState ?? "")) {
+    throw new Error("Invoice must be published in SIGESC before recording payments.");
+  }
+  const restPayable = fresh.centralRestPayable != null ? Number(fresh.centralRestPayable) : null;
+  if (
+    PAID_CENTRAL_STATES.has(fresh.centralState ?? "") ||
+    (restPayable !== null && restPayable <= 0.004)
+  ) {
+    // If this exact idempotencyKey was pending before timeout, treat as reconciled if central is now paid.
+    const hadPendingSameToken = invoice.attempts.some(
+      (a) => a.outcome === "PAYMENT_PENDING" && attemptTokenOf(a) === idempotencyKey,
+    );
+    if (!hadPendingSameToken) {
+      throw new Error("Invoice is already fully paid (rest_payable = 0).");
+    }
+  }
+  if (restPayable !== null && amount > restPayable + 0.005) {
+    const hadPendingSameToken = invoice.attempts.some(
+      (a) => a.outcome === "PAYMENT_PENDING" && attemptTokenOf(a) === idempotencyKey,
+    );
+    if (!hadPendingSameToken) {
+      throw new Error(
+        `Payment amount (${amount.toFixed(2)}) exceeds central remaining balance (${restPayable.toFixed(2)}).`,
+      );
+    }
+  }
+
+  const resolved = await resolveInstitutionAggregateConnection(prisma, ctx.institutionId);
+  assertAnyAggregateScope(resolved, ["sales", "payments"]);
+  const client = getAggregateClient(resolved.connection.host);
+
+  await recordAttempt(prisma, invoiceId, {
+    outcome: "PAYMENT_PENDING",
+    remoteSaleKey: fresh.saleKey ?? undefined,
+    responseSummary: {
+      token: idempotencyKey,
+      amount,
+      paymentMethodId: input.paymentMethodId,
+      bankAccountId: input.bankAccountId ?? null,
+    },
+  });
+
+  try {
+    const { httpStatus, result } = await client.recordSalePayment(resolved.apiKey, fresh.saleKey!, {
+      idempotency_key: idempotencyKey,
+      external_payment_id: idempotencyKey,
+      amount,
+      payment_method_id: input.paymentMethodId,
+      ...(input.bankAccountId ? { bank_account_id: input.bankAccountId } : {}),
+      ...(input.reference?.trim() ? { reference: input.reference.trim() } : {}),
+      ...(input.notes?.trim() ? { notes: input.notes.trim() } : {}),
+      ...(input.date ? { date: input.date } : {}),
+      type: input.type ?? "payment",
+    });
+    assertCompanyMatchesConnection(resolved, result.sale.company_id);
+
+    const syncedLinesJson = mergeRemoteSaleItems(fresh.linesJson, result.sale);
+    const updated = await prisma.invoiceIntegration.update({
+      where: { id: invoiceId },
+      data: {
+        ...persistSaleFields(result.sale),
+        ...(syncedLinesJson ? { linesJson: syncedLinesJson } : {}),
+        status: "CREATED",
+      },
+    });
+
+    await recordAttempt(prisma, invoiceId, {
+      outcome: "PAYMENT_OK",
+      httpStatus,
+      remoteSaleKey: result.sale.sale_key,
+      responseSummary: {
+        token: idempotencyKey,
+        created: result.created,
+        idempotent: result.idempotent,
+        payment_id: result.payment?.id ?? null,
+        receipt_number: result.payment?.number ?? null,
+        amount: result.payment?.amount ?? amount,
+        state: result.sale.state,
+        rest_payable: result.sale.rest_payable,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        institutionId: ctx.institutionId,
+        actorUserId: ctx.userId,
+        action: "UPDATE",
+        entityType: "InvoiceIntegration",
+        entityId: invoiceId,
+        metadata: {
+          event: "invoice.payment_recorded",
+          token: idempotencyKey,
+          saleKey: result.sale.sale_key,
+          paymentId: result.payment?.id ?? null,
+          receiptNumber: result.payment?.number ?? null,
+          amount,
+          paymentMethodId: input.paymentMethodId,
+          centralState: result.sale.state,
+          centralRestPayable: result.sale.rest_payable ?? null,
+        },
+      },
+    });
+
+    return {
+      invoice: updated,
+      created: result.created,
+      idempotent: result.idempotent,
+      reconciliationRequired: false as const,
+      payment: result.payment,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Payment recording failed";
+    if (isAmbiguousNetworkError(err)) {
+      const updated = await prisma.invoiceIntegration.update({
+        where: { id: invoiceId },
+        data: {
+          status: "RECONCILIATION_REQUIRED",
+          lastError:
+            "Pagamento enviado sem confirmação final do SIGESC (timeout/rede). Actualize o estado central ou repita com a mesma chave de idempotência.",
+        },
+      });
+      return {
+        invoice: updated,
+        created: false,
+        idempotent: false,
+        reconciliationRequired: true as const,
+        warning: updated.lastError,
+        payment: null,
+      };
+    }
+
+    await recordAttempt(prisma, invoiceId, {
+      outcome: "PAYMENT_FAILED",
+      httpStatus: err instanceof AggregateApiError ? err.status : undefined,
+      errorMessage: message,
+      responseSummary: { token: idempotencyKey, amount },
     });
     throw err;
   }

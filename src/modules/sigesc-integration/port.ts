@@ -4,8 +4,10 @@ import type {
   AggregateCustomersQuery,
   AggregateCustomerWriteInput,
   AggregateEnvelope,
+  AggregateMeData,
   AggregateOnboardingData,
   AggregateOnboardingQuery,
+  AggregatePaymentMethodsData,
   AggregateProduct,
   AggregateProductMutationResult,
   AggregateProductsQuery,
@@ -14,6 +16,10 @@ import type {
   AggregateSaleCreateInput,
   AggregateSaleItemInput,
   AggregateSaleMutationResult,
+  AggregateSalePaymentInput,
+  AggregateSalePaymentResult,
+  AggregateSalePublishInput,
+  AggregateSalePublishResult,
   AggregateSalesQuery,
   AggregateUser,
   AggregateUsersQuery,
@@ -100,9 +106,27 @@ export interface AggregatePort {
     apiKey: string,
     saleKey: string,
     items: AggregateSaleItemInput[],
+    options?: { idempotencyKey?: string },
   ): Promise<AggregateSale>;
 
-  fetchMe?(apiKey: string): Promise<unknown>;
+  listPaymentMethods(
+    apiKey: string,
+    query?: { company_id?: number | string },
+  ): Promise<AggregatePaymentMethodsData>;
+
+  publishSale(
+    apiKey: string,
+    saleKey: string,
+    body?: AggregateSalePublishInput,
+  ): Promise<{ httpStatus: number; result: AggregateSalePublishResult }>;
+
+  recordSalePayment(
+    apiKey: string,
+    saleKey: string,
+    body: AggregateSalePaymentInput,
+  ): Promise<{ httpStatus: number; result: AggregateSalePaymentResult }>;
+
+  fetchMe?(apiKey: string): Promise<AggregateMeData>;
 }
 
 export type AggregateMode = "mock" | "http";

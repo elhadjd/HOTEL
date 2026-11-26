@@ -8,8 +8,10 @@ import type {
   AggregateCustomersQuery,
   AggregateCustomerWriteInput,
   AggregateEnvelope,
+  AggregateMeData,
   AggregateOnboardingData,
   AggregateOnboardingQuery,
+  AggregatePaymentMethodsData,
   AggregateProduct,
   AggregateProductMutationResult,
   AggregateProductsQuery,
@@ -18,6 +20,10 @@ import type {
   AggregateSaleCreateInput,
   AggregateSaleItemInput,
   AggregateSaleMutationResult,
+  AggregateSalePaymentInput,
+  AggregateSalePaymentResult,
+  AggregateSalePublishInput,
+  AggregateSalePublishResult,
   AggregateSalesQuery,
   AggregateUser,
   AggregateUsersQuery,
@@ -83,6 +89,7 @@ export class HttpAggregateAdapter implements AggregatePort {
       body?: unknown;
       okStatuses?: number[];
       returnStatus?: boolean;
+      idempotencyKey?: string;
     },
   ): Promise<T | { httpStatus: number; data: T }> {
     const url = new URL(`${this.basePath()}${path}`);
@@ -100,6 +107,7 @@ export class HttpAggregateAdapter implements AggregatePort {
       "X-Request-Id": requestId,
     };
     if (options?.body !== undefined) headers["Content-Type"] = "application/json";
+    if (options?.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
 
     let res: Response;
     try {
@@ -412,14 +420,17 @@ export class HttpAggregateAdapter implements AggregatePort {
     apiKey: string,
     saleKey: string,
     items: AggregateSaleItemInput[],
+    options?: { idempotencyKey?: string },
   ): Promise<AggregateSale> {
     const safeKey = assertSaleKeySegment(saleKey);
+    const idempotencyKey = options?.idempotencyKey?.trim() || undefined;
     const raw = (await this.requestJson<AggregateSale | { sale: AggregateSale }>(
       apiKey,
       "POST",
       `/sales/${safeKey}/items`,
       {
-        body: { items },
+        body: idempotencyKey ? { items, idempotency_key: idempotencyKey } : { items },
+        idempotencyKey,
         okStatuses: [200, 201],
       },
     )) as AggregateSale | { sale: AggregateSale };
@@ -434,7 +445,94 @@ export class HttpAggregateAdapter implements AggregatePort {
     return sale;
   }
 
-  async fetchMe(apiKey: string): Promise<unknown> {
-    return this.requestJson<unknown>(apiKey, "GET", "/me");
+  async listPaymentMethods(
+    apiKey: string,
+    query?: { company_id?: number | string },
+  ): Promise<AggregatePaymentMethodsData> {
+    const data = (await this.requestJson<AggregatePaymentMethodsData>(
+      apiKey,
+      "GET",
+      "/payment-methods",
+      {
+        searchParams: { company_id: query?.company_id },
+      },
+    )) as AggregatePaymentMethodsData;
+    if (!Array.isArray(data?.payment_methods)) {
+      throw new AggregateApiError(
+        "Invalid Aggregate response from GET /payment-methods (missing payment_methods)",
+        502,
+        502,
+      );
+    }
+    return {
+      payment_methods: data.payment_methods,
+      bank_accounts: Array.isArray(data.bank_accounts) ? data.bank_accounts : [],
+    };
+  }
+
+  async publishSale(
+    apiKey: string,
+    saleKey: string,
+    body?: AggregateSalePublishInput,
+  ): Promise<{ httpStatus: number; result: AggregateSalePublishResult }> {
+    const safeKey = assertSaleKeySegment(saleKey);
+    const idempotencyKey = body?.idempotency_key?.trim() || undefined;
+    const wrapped = (await this.requestJson<AggregateSalePublishResult>(
+      apiKey,
+      "POST",
+      `/sales/${safeKey}/publish`,
+      {
+        body: body ?? {},
+        idempotencyKey,
+        okStatuses: [200, 201],
+        returnStatus: true,
+      },
+    )) as { httpStatus: number; data: AggregateSalePublishResult };
+    if (!wrapped.data?.sale?.sale_key || !wrapped.data?.sale?.state) {
+      throw new AggregateApiError(
+        "Invalid Aggregate response from POST /sales/{sale_key}/publish",
+        502,
+        502,
+      );
+    }
+    return { httpStatus: wrapped.httpStatus, result: wrapped.data };
+  }
+
+  async recordSalePayment(
+    apiKey: string,
+    saleKey: string,
+    body: AggregateSalePaymentInput,
+  ): Promise<{ httpStatus: number; result: AggregateSalePaymentResult }> {
+    const safeKey = assertSaleKeySegment(saleKey);
+    const idempotencyKey = (body.idempotency_key || body.external_payment_id || "").trim();
+    if (!idempotencyKey) {
+      throw new AggregateApiError("idempotency_key is required for sale payments", 422, 422);
+    }
+    const wrapped = (await this.requestJson<AggregateSalePaymentResult>(
+      apiKey,
+      "POST",
+      `/sales/${safeKey}/payments`,
+      {
+        body: {
+          ...body,
+          idempotency_key: idempotencyKey,
+        },
+        idempotencyKey,
+        okStatuses: [200, 201],
+        returnStatus: true,
+      },
+    )) as { httpStatus: number; data: AggregateSalePaymentResult };
+    if (!wrapped.data?.sale?.sale_key || !wrapped.data?.sale?.state) {
+      throw new AggregateApiError(
+        "Invalid Aggregate response from POST /sales/{sale_key}/payments",
+        502,
+        502,
+      );
+    }
+    return { httpStatus: wrapped.httpStatus, result: wrapped.data };
+  }
+
+  async fetchMe(apiKey: string): Promise<AggregateMeData> {
+    return this.requestJson<AggregateMeData>(apiKey, "GET", "/me") as Promise<AggregateMeData>;
   }
 }

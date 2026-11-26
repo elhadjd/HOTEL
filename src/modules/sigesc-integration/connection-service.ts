@@ -37,8 +37,17 @@ export async function testAggregateConnection(
 
     if (client.fetchMe) {
       try {
-        await client.fetchMe(resolved.apiKey);
+        const me = await client.fetchMe(resolved.apiKey);
         endpoint = "GET /me";
+        if (me?.key?.name) keyName = me.key.name;
+        if (Array.isArray(me?.key?.scopes) && me.key.scopes.length > 0) {
+          scopes = me.key.scopes;
+        }
+        if (me?.owner_company_id != null) {
+          companyId = String(me.owner_company_id);
+        } else if (me?.key?.owner_company_id != null) {
+          companyId = String(me.key.owner_company_id);
+        }
       } catch {
         const onboarding = await client.fetchOnboarding(resolved.apiKey);
         endpoint = "GET /onboarding";
@@ -358,7 +367,20 @@ export async function syncOpenInvoicesFromCentral(
       status: { in: ["CREATED", "RECONCILIATION_REQUIRED"] },
       OR: [
         { centralState: null },
-        { centralState: { notIn: ["Paga", "Paid", "Anulada", "Cancelada", "Cancelled"] } },
+        {
+          centralState: {
+            notIn: [
+              "Pago",
+              "Paga",
+              "Paid",
+              "Anulado",
+              "Anulada",
+              "Cancelado",
+              "Cancelada",
+              "Cancelled",
+            ],
+          },
+        },
       ],
     },
     orderBy: { updatedAt: "asc" },

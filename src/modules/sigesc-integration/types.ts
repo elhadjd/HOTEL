@@ -113,16 +113,28 @@ export type AggregateOnboardingQuery = {
 export type AggregateCustomer = {
   id: number;
   company_id: number;
+  reference?: string | null;
   name: string;
   surname?: string | null;
   full_name?: string | null;
   email?: string | null;
   phone?: string | null;
   nif?: string | null;
+  address?: string | null;
   customer_code?: string | null;
+  customer_type?: string | null;
   status?: boolean;
   city?: string | null;
+  province?: string | null;
   country_id?: number | null;
+  country?: { id: number; name?: string | null; code?: string | null } | null;
+  credit_limit?: number | null;
+  account_balance?: number | null;
+  birth_date?: string | null;
+  sex?: string | null;
+  image?: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type AggregateCustomersQuery = {
@@ -310,27 +322,58 @@ export type AggregateSaleItem = {
   product?: { id?: number; name?: string; code?: string; sale_price?: number };
 };
 
+export type AggregateSalePayment = {
+  id: number;
+  amount: number;
+  total_payments?: number | null;
+  remaining_payable?: number | null;
+  date?: string | null;
+  status?: string | null;
+  type?: string | null;
+  number?: string | null;
+  notes?: string | null;
+  bank_account_id?: number | null;
+  idempotency_key?: string | null;
+  method?: { id: number; name?: string | null } | null;
+};
+
 export type AggregateSale = {
   id: number;
   sale_key: string;
   source?: string;
+  source_label?: string;
   company_id: number;
+  reference?: string | null;
+  document_number?: string | null;
+  document_type?: string | null;
+  order_number?: string | null;
   order_reference?: string | null;
+  external_id?: string | null;
   state: string;
+  payment_status?: "unpaid" | "partial" | "paid";
   total?: number;
   subtotal?: number;
   tax?: number;
+  discount?: number;
   rest_payable?: number;
+  collected?: number | null;
   date?: string;
+  date_order?: string;
   date_due?: string;
+  confirmed_at?: string | null;
   customer?: {
     id?: number;
     name?: string;
     surname?: string | null;
     email?: string | null;
+    phone?: string | null;
   } | null;
   items?: AggregateSaleItem[];
-  payments?: unknown[];
+  payments?: AggregateSalePayment[];
+  items_count?: number | null;
+  payments_count?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 export type AggregateSaleMutationResult = {
@@ -338,6 +381,85 @@ export type AggregateSaleMutationResult = {
   idempotent: boolean;
   hint?: string;
   sale: AggregateSale;
+};
+
+export type AggregateBankAccount = {
+  id: number;
+  company_id?: number;
+  name: string;
+  reference?: string | null;
+  account_number?: string | null;
+  iban?: string | null;
+  is_cash?: boolean;
+};
+
+export type AggregatePaymentMethod = {
+  id: number;
+  company_id?: number;
+  name: string;
+  icon?: string | null;
+  is_cash?: boolean;
+  status?: boolean;
+  default_bank_account_id?: number | null;
+  bank_accounts?: AggregateBankAccount[];
+};
+
+export type AggregatePaymentMethodsData = {
+  payment_methods: AggregatePaymentMethod[];
+  bank_accounts: AggregateBankAccount[];
+};
+
+export type AggregateSalePublishInput = {
+  document_type?: "receipt" | "advance" | "global" | "generic" | "FT" | "FA" | "FG" | "GF";
+  idempotency_key?: string;
+  date_due?: string;
+  notes?: string;
+};
+
+export type AggregateSalePublishResult = {
+  published: boolean;
+  idempotent: boolean;
+  document_number?: string | null;
+  sale: AggregateSale;
+};
+
+export type AggregateSalePaymentInput = {
+  idempotency_key: string;
+  external_payment_id?: string;
+  amount: number;
+  payment_method_id: number;
+  bank_account_id?: number | null;
+  type?: "payment" | "advance";
+  date?: string;
+  reference?: string;
+  notes?: string;
+};
+
+export type AggregateSalePaymentResult = {
+  created: boolean;
+  idempotent: boolean;
+  payment: AggregateSalePayment;
+  sale: AggregateSale;
+};
+
+export type AggregateMeData = {
+  key: AggregateKeyMeta & {
+    rate_limit_per_minute?: number;
+    expires_at?: string | null;
+    last_used_at?: string | null;
+  };
+  owner_company_id?: number | null;
+  company_ids?: number[];
+  companies?: Array<{
+    id: number;
+    name: string;
+    reference?: string | number | null;
+    email?: string | null;
+    nif?: string | null;
+    platform_status?: string | null;
+    is_owner?: boolean;
+    role?: string;
+  }>;
 };
 
 export type AggregateSalesQuery = {
