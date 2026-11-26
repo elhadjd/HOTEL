@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/server/db";
 import { requireTenant } from "@/server/api-auth";
-import { getInvoiceIntegration } from "@/modules/sigesc-integration/invoices/invoice-service";
+import {
+  extractInvoicePayments,
+  getInvoiceIntegration,
+} from "@/modules/sigesc-integration/invoices/invoice-service";
 import { mapAggregateError } from "@/modules/sigesc-integration/connection-context";
 
 export async function GET(
@@ -13,7 +16,10 @@ export async function GET(
   const { id } = await context.params;
   try {
     const invoice = await getInvoiceIntegration(prisma, authz.ctx, id);
-    return NextResponse.json({ invoice });
+    return NextResponse.json({
+      invoice,
+      payments: extractInvoicePayments(invoice.linesJson),
+    });
   } catch (err) {
     const mapped = mapAggregateError(err);
     return NextResponse.json({ error: mapped.message }, { status: mapped.status });

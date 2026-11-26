@@ -15,8 +15,15 @@ const updateSchema = z
     email: z.string().email().optional().nullable(),
     phone: z.string().max(40).optional().nullable(),
     nif: z.string().max(64).optional().nullable(),
+    address: z.string().max(500).optional().nullable(),
     city: z.string().max(120).optional().nullable(),
+    province: z.string().max(120).optional().nullable(),
+    country_id: z.number().int().positive().optional().nullable(),
     customer_code: z.string().max(64).optional().nullable(),
+    customer_type: z.string().max(64).optional().nullable(),
+    credit_limit: z.number().nonnegative().optional().nullable(),
+    birth_date: z.string().max(32).optional().nullable(),
+    sex: z.string().max(32).optional().nullable(),
     status: z.union([z.boolean(), z.string()]).optional(),
   })
   .strict();
@@ -37,7 +44,7 @@ export async function GET(
   }
 }
 
-export async function PATCH(
+async function handleUpdate(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -65,3 +72,6 @@ export async function PATCH(
     return NextResponse.json({ error: mapped.message }, { status: mapped.status });
   }
 }
+
+export const PATCH = handleUpdate;
+export const PUT = handleUpdate;
