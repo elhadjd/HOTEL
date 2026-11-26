@@ -1,6 +1,6 @@
 import { prisma } from "@/server/db";
 import { ensureInstitutionRoles } from "@/modules/iam/ensure-roles";
-import { SYSTEM_ROLES } from "@/modules/iam/permissions";
+import { resolveEffectivePermissions, SYSTEM_ROLES } from "@/modules/iam/permissions";
 
 const roleSyncInFlight = new Map<string, Promise<void>>();
 
@@ -43,7 +43,10 @@ export type TenantContext = {
   permissions: string[];
 };
 
-export async function resolveTenantContext(userId: string, institutionId?: string): Promise<TenantContext> {
+export async function resolveTenantContext(
+  userId: string,
+  institutionId?: string,
+): Promise<TenantContext> {
   const memberships = await prisma.membership.findMany({
     where: {
       userId,
@@ -56,6 +59,9 @@ export async function resolveTenantContext(userId: string, institutionId?: strin
           permissions: { include: { permission: true } },
         },
       },
+      permissionOverrides: {
+        include: { permission: { select: { code: true } } },
+      },
     },
     orderBy: { createdAt: "asc" },
   });
@@ -65,31 +71,43 @@ export async function resolveTenantContext(userId: string, institutionId?: strin
     throw new TenantAccessError("No active membership for this user");
   }
 
-  let permissions = membership.role.permissions.map((rp) => rp.permission.code);
+  let rolePermissions = membership.role.permissions.map((rp) => rp.permission.code);
   if (membership.role.system) {
     const expected = expectedSystemRolePermissions(membership.role.code);
     if (expected) {
-      const currentSet = new Set(permissions);
+      const currentSet = new Set(rolePermissions);
       const missing = expected.filter((code) => !currentSet.has(code));
       if (missing.length > 0) {
         await syncInstitutionSystemRolesOnce(membership.institutionId);
-        permissions = [...new Set([...permissions, ...missing])];
+        rolePermissions = [...new Set([...rolePermissions, ...missing])];
       }
     }
   }
+
+  const effectivePermissions = resolveEffectivePermissions(
+    rolePermissions,
+    membership.permissionOverrides.map((ov) => ({
+      code: ov.permission.code,
+      effect: ov.effect,
+    })),
+  );
 
   return {
     userId,
     institutionId: membership.institutionId,
     membershipId: membership.id,
     roleCode: membership.role.code,
-    permissions,
+    permissions: effectivePermissions,
   };
 }
 
 export function assertPermission(ctx: TenantContext, permission: string): void {
   if (ctx.permissions.includes(permission)) return;
   throw new TenantAccessError(`Missing permission: ${permission}`);
+}
+
+export function hasPermission(ctx: TenantContext, permission: string): boolean {
+  return ctx.permissions.includes(permission);
 }
 
 export function assertSameInstitution(ctx: TenantContext, resourceInstitutionId: string): void {

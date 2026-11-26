@@ -24,13 +24,20 @@ export default async function StaffPage({
   ]);
 
   return (
-    <AppShell title="Equipa">
-      <div className="mb-4 flex justify-end">
-        <Badge tone="accent">Phase 8.1</Badge>
+    <AppShell title="Equipa e Permissões">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <p className="font-ui max-w-2xl text-sm text-stone-500">
+          Gira utilizadores, perfis base e permissões individuais por módulo. Todas as alterações
+          são aplicadas imediatamente no menu lateral, páginas e endpoints da API.
+        </p>
+        <Badge tone="accent">Controlo de Acesso (RBAC)</Badge>
       </div>
       <StaffClient
         initialMemberships={JSON.parse(JSON.stringify(memberships))}
-        roles={roles.map((r) => ({ value: r.code, label: `${r.name} (${r.code})` }))}
+        roles={roles}
+        canWrite={ctx.permissions.includes("staff.write")}
+        callerPermissions={ctx.permissions}
+        currentUserId={ctx.userId}
       />
     </AppShell>
   );
