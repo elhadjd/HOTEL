@@ -206,12 +206,21 @@ async function main() {
     },
   });
 
+  // Ensure every existing institution receives any newly added system-role permissions
+  const allInstitutions = await prisma.institution.findMany({ select: { id: true } });
+  for (const inst of allInstitutions) {
+    if (inst.id !== institution.id) {
+      await ensureInstitutionRoles(prisma, inst.id);
+    }
+  }
+
   console.log("Seed complete:", {
     institution: institution.slug,
     hotel: hotel.code,
     admin: admin.email,
     guest: guest.email,
     reservation: reservation.code,
+    syncedInstitutions: allInstitutions.length,
   });
 }
 
