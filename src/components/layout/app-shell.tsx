@@ -75,8 +75,8 @@ export async function AppShell({
             clientes e produtos não estão a ser enviados ao servidor externo real.
           </div>
         ) : null}
-        <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 lg:px-8">
-          <div className="mx-auto w-full max-w-[1400px] animate-fade-up">{children}</div>
+        <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3.5 py-5 sm:px-6 lg:px-8 lg:py-7">
+          <div className="mx-auto w-full max-w-[1440px] animate-fade-up">{children}</div>
         </main>
       </div>
     </div>

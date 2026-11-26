@@ -634,8 +634,102 @@ export function ProductsClient({
           </div>
         ) : null}
 
-        {/* Catalog table */}
-        <div className="mt-4 overflow-x-auto">
+        {/* Mobile catalog cards */}
+        <div className="mt-4 space-y-2.5 md:hidden">
+          {products.length === 0 ? (
+            <p className="py-8 text-center text-sm text-stone-500">
+              Nenhum produto ou serviço encontrado no catálogo central.
+            </p>
+          ) : (
+            <>
+              <label className="flex items-center gap-2 px-1 text-xs font-medium text-stone-600">
+                <input
+                  type="checkbox"
+                  checked={allPageSelected}
+                  onChange={toggleSelectAllPage}
+                  className="h-4 w-4 rounded border-sand-200 accent-teal-600"
+                />
+                Selecionar todos desta página ({products.length})
+              </label>
+              {products.map((p) => {
+                const isImported = importedCentralIds.has(String(p.id));
+                const isSelected = selectedIds.includes(p.id);
+                const isProduct = (p.kind ?? "").toLowerCase() === "product";
+                return (
+                  <div
+                    key={p.id}
+                    className={`rounded-xl border p-3.5 transition-colors ${
+                      isSelected
+                        ? "border-teal-500/50 bg-teal-50/40"
+                        : "border-sand-200 bg-white"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelect(p.id)}
+                        aria-label={`Selecionar ${p.name}`}
+                        className="mt-1 h-4 w-4 shrink-0 rounded border-sand-200 accent-teal-600"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center justify-between gap-1">
+                          <p className="font-medium text-ink-900">{p.name}</p>
+                          <span className="font-semibold tabular-nums text-ink-900">
+                            {money(p.sale_price)}
+                          </span>
+                        </div>
+                        <p className="font-mono text-xs text-stone-500">
+                          #{p.id}
+                          {p.code ? ` · ${p.code}` : ""} · IVA{" "}
+                          {p.tax_percent != null ? `${p.tax_percent}%` : "0%"}
+                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-sand-100 px-2 py-0.5 text-[11px] font-medium text-stone-700">
+                            {isProduct ? "Produto" : "Serviço"}
+                          </span>
+                          {isImported ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800">
+                              <Check className="h-3 w-3" />
+                              Nos selects
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={isImported ? "ghost" : "secondary"}
+                            disabled={pending}
+                            onClick={() => runImport({ mode: "single", productId: p.id })}
+                            className="gap-1"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            {isImported ? "Actualizar" : "Importar"}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={pending}
+                            onClick={() => openEditDrawer(p)}
+                            className="gap-1"
+                          >
+                            <Edit3 className="h-3.5 w-3.5" />
+                            Editar
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+
+        {/* Desktop catalog table */}
+        <div className="mt-4 hidden overflow-x-auto md:block">
           <table className="data-table min-w-[820px]">
             <thead>
               <tr>
@@ -852,7 +946,60 @@ export function ProductsClient({
           </form>
         ) : null}
 
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 space-y-2.5 md:hidden">
+          {mappings.length === 0 ? (
+            <p className="py-6 text-center text-sm text-stone-500">
+              Ainda nenhum produto importado. Clique em &ldquo;Importar todos&rdquo; acima para
+              disponibilizar o catálogo inteiro nos selects.
+            </p>
+          ) : (
+            mappings.map((m) => (
+              <div key={m.id} className="rounded-xl border border-sand-200 bg-white p-3.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-ink-900">{m.localLabel}</p>
+                    <p className="font-mono text-xs text-stone-500">
+                      {m.localCode} · ID #{m.centralProductId}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold tabular-nums text-ink-900">
+                      {money(m.centralSalePrice)}
+                    </p>
+                    <p className="text-[11px] tabular-nums text-stone-500">
+                      IVA {m.centralTaxPercent != null ? `${m.centralTaxPercent}%` : "0%"}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={pending}
+                    onClick={() => refreshPrice(m.id)}
+                    className="gap-1"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Sincronizar
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={pending}
+                    onClick={() => removeMapping(m.id)}
+                    className="text-danger hover:bg-red-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="mt-4 hidden overflow-x-auto md:block">
           <table className="data-table min-w-[760px]">
             <thead>
               <tr>

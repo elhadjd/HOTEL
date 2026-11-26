@@ -128,24 +128,25 @@ export function FrontDeskClient({
           <p className="font-ui text-[11px] uppercase tracking-[0.18em] text-stone-400">
             Recepção
           </p>
-          <h1 className="mt-1 text-3xl font-semibold text-ink-900">Front Desk</h1>
+          <h1 className="mt-1 text-2xl font-semibold text-ink-900 sm:text-3xl">Front Desk</h1>
           <p className="font-ui mt-1 max-w-2xl text-sm text-stone-500">
             Visão operacional do dia — chegadas, partidas, ocupação e prontidão de quartos.
-            Totais financeiros oficiais só via documentos Aggregate.
           </p>
         </div>
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="font-ui block text-xs text-stone-500">
-            Hotel
-            <SearchableSelect
-              className="mt-1 w-56"
-              options={[{ value: "", label: "Todos os hotéis" }, ...hotels]}
-              value={hotelId}
-              onChange={setHotelId}
-              clearable={false}
-              labels={{ placeholder: "Todos" }}
-            />
-          </label>
+        <div className="flex w-full flex-wrap items-end gap-2 sm:w-auto">
+          {hotels.length > 1 ? (
+            <div className="font-ui block w-full text-xs text-stone-500 sm:w-56">
+              <span>Hotel</span>
+              <SearchableSelect
+                className="mt-1 w-full"
+                options={[{ value: "", label: "Todos os hotéis" }, ...hotels]}
+                value={hotelId}
+                onChange={setHotelId}
+                clearable={false}
+                labels={{ placeholder: "Todos" }}
+              />
+            </div>
+          ) : null}
           <label className="font-ui block text-xs text-stone-500">
             Data
             <div className="mt-1 flex items-center gap-1">

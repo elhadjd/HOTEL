@@ -597,9 +597,13 @@ export function StayWorkspaceClient({
                   <div className="flex items-center justify-between gap-2">
                     <Link
                       href={`/integrations/invoices/${inv.id}`}
-                      className="font-medium text-teal-700 hover:underline"
+                      className="font-mono font-medium text-teal-700 hover:underline"
                     >
-                      {inv.orderReference || inv.externalId}
+                      {inv.orderReference &&
+                      !inv.orderReference.startsWith("HOT-INV-") &&
+                      !inv.orderReference.startsWith("API-HOT-INV-")
+                        ? inv.orderReference
+                        : "Rascunho local"}
                     </Link>
                     {inv.saleKey ? (
                       <button

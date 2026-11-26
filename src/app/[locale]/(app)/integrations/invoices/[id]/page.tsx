@@ -48,8 +48,15 @@ export default async function InvoiceDetailPage({
   const payments = extractInvoicePayments(invoice.linesJson);
   const canSettle = ctx.permissions.includes("integrations.invoices.settle");
 
+  const officialTitle =
+    invoice.orderReference &&
+    !invoice.orderReference.startsWith("HOT-INV-") &&
+    !invoice.orderReference.startsWith("API-HOT-INV-")
+      ? invoice.orderReference
+      : "Rascunho local";
+
   return (
-    <AppShell title={invoice.orderReference || invoice.externalId}>
+    <AppShell title={officialTitle}>
       <InvoiceDetailClient
         canSettle={canSettle}
         invoice={{

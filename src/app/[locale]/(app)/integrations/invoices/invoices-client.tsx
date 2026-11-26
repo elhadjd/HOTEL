@@ -562,8 +562,59 @@ export function InvoicesClient({
           />
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="data-table min-w-[960px]">
+            <div className="divide-y divide-sand-100 md:hidden">
+              {rows.map((inv) => {
+                const officialNumber =
+                  inv.orderReference &&
+                  !inv.orderReference.startsWith("HOT-INV-") &&
+                  !inv.orderReference.startsWith("API-HOT-INV-")
+                    ? inv.orderReference
+                    : null;
+                return (
+                  <div key={inv.id} className="space-y-2.5 p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        {officialNumber ? (
+                          <div className="font-mono text-sm font-semibold text-ink-900">
+                            {officialNumber}
+                          </div>
+                        ) : (
+                          <div className="font-medium text-stone-600">Rascunho local</div>
+                        )}
+                        <div className="truncate text-xs text-stone-500">
+                          {inv.guestLabel ?? "Sem hóspede"} · {inv.saleKey ?? "não enviado"}
+                        </div>
+                      </div>
+                      <Link
+                        href={`/integrations/invoices/${inv.id}`}
+                        className="inline-flex h-8 shrink-0 items-center rounded-md bg-teal-600 px-3 text-xs font-medium text-white hover:bg-teal-500"
+                      >
+                        Abrir
+                      </Link>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      <StatusPill value={inv.requestedState} />
+                      <StatusPill value={inv.status} />
+                      {inv.centralState ? <StatusPill value={inv.centralState} /> : null}
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg bg-sand-50/80 px-3 py-2 text-xs tabular-nums">
+                      <span className="text-stone-600">
+                        {inv.summary.itemCount} item(ns) · qty {inv.summary.totalQuantity}
+                      </span>
+                      <span className="font-semibold text-ink-900">
+                        {inv.centralTotal != null ? money(inv.centralTotal, inv.currency) : "Pendente"}
+                      </span>
+                    </div>
+                    {inv.lastError ? (
+                      <p className="text-xs text-danger">{inv.lastError}</p>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="hidden overflow-x-auto md:block">
+              <table className="data-table min-w-[900px]">
                 <thead>
                   <tr>
                     <th>Nº da Fatura</th>

@@ -83,7 +83,7 @@ export function MaintenanceOpsClient({
           </p>
         </div>
         <SearchableSelect
-          className="w-56"
+          className="w-full sm:w-56"
           options={[{ value: "", label: "Todos os hotéis" }, ...hotels]}
           value={hotelId}
           onChange={setHotelId}

@@ -86,7 +86,7 @@ export async function resolveTenantContext(
 
   const effectivePermissions = resolveEffectivePermissions(
     rolePermissions,
-    membership.permissionOverrides.map((ov) => ({
+    (membership.permissionOverrides ?? []).map((ov) => ({
       code: ov.permission.code,
       effect: ov.effect,
     })),

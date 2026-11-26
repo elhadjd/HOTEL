@@ -13,6 +13,10 @@ type Arrival = {
   status: string;
   arrivalDate: string;
   departureDate: string;
+  expectedCheckInTime?: string | null;
+  expectedCheckOutTime?: string | null;
+  earlyCheckInRequested?: boolean;
+  lateCheckOutRequested?: boolean;
   adults: number;
   children?: number;
   hotel: { name: string; code: string };
@@ -90,6 +94,7 @@ export function CheckInClient({
   focusReservationId?: string;
 }) {
   const router = useRouter();
+  const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const [arrivals, setArrivals] = useState(initialArrivals);
   const [selectedId, setSelectedId] = useState(
     focusReservationId && initialArrivals.some((a) => a.id === focusReservationId)
@@ -150,10 +155,10 @@ export function CheckInClient({
           <p className="font-ui text-[11px] uppercase tracking-[0.18em] text-stone-400">
             Recepção
           </p>
-          <h1 className="mt-1 text-3xl font-semibold text-ink-900">Check-in guiado</h1>
+          <h1 className="mt-1 text-2xl font-semibold text-ink-900 sm:text-3xl">Check-in guiado</h1>
           <p className="font-ui mt-1 max-w-xl text-sm text-stone-600">
-            Suporta reservas individuais e multi-quarto. O check-in lança automaticamente o
-            alojamento na conta da estadia; documentos fiscais são geridos apenas no sistema central.
+            Chegadas de hoje e chegadas atrasadas elegíveis, ordenadas por horário previsto de
+            entrada. Suporta reservas individuais e multi-quarto.
           </p>
         </div>
         <Button type="button" variant="secondary" disabled={pending} onClick={refresh}>
@@ -193,12 +198,13 @@ export function CheckInClient({
                     a.rooms.length > 1
                       ? `${a.rooms.length} quartos (${(a.stays ?? []).length} em estadia)`
                       : a.rooms[0]?.room.code ?? "sem quarto";
+                  const isLateArrival = a.arrivalDate.slice(0, 10) < todayIso;
                   return (
                     <li key={a.id}>
                       <button
                         type="button"
-                        className={`w-full px-4 py-3 text-left hover:bg-sand-50 ${
-                          selectedId === a.id ? "bg-teal-50" : ""
+                        className={`w-full px-4 py-3 text-left transition-colors hover:bg-sand-50 ${
+                          selectedId === a.id ? "bg-teal-50/80" : ""
                         }`}
                         onClick={() => {
                           setSelectedId(a.id);
@@ -207,13 +213,32 @@ export function CheckInClient({
                           setResultStayId(null);
                         }}
                       >
-                        <p className="font-medium text-ink-900">
-                          {primary
-                            ? `${primary.guest.firstName} ${primary.guest.lastName}`
-                            : a.code}
-                        </p>
-                        <p className="font-ui text-xs text-stone-500">
-                          {a.code} · {roomSummary}
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-medium text-ink-900">
+                            {primary
+                              ? `${primary.guest.firstName} ${primary.guest.lastName}`
+                              : a.code}
+                          </p>
+                          <div className="flex flex-wrap gap-1">
+                            {a.expectedCheckInTime ? (
+                              <span className="rounded bg-sand-100 px-1.5 py-0.5 font-mono text-[11px] font-medium text-ink-900">
+                                {a.expectedCheckInTime}
+                              </span>
+                            ) : null}
+                            {a.earlyCheckInRequested ? (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                                Early
+                              </span>
+                            ) : null}
+                            {isLateArrival ? (
+                              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-danger">
+                                Atrasada
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                        <p className="font-ui mt-0.5 text-xs text-stone-500">
+                          <span className="font-mono">{a.code}</span> · {roomSummary}
                         </p>
                       </button>
                     </li>
@@ -225,17 +250,20 @@ export function CheckInClient({
           {selected && gate ? (
             <div className="surface p-5">
               <h2 className="text-lg font-semibold">Resumo da reserva</h2>
-              <dl className="font-ui mt-4 grid gap-2 text-sm sm:grid-cols-2">
+              <dl className="font-ui mt-4 grid gap-3 text-sm sm:grid-cols-2">
                 <div>
-                  <dt className="text-stone-500">Referência</dt>
-                  <dd>{selected.code}</dd>
+                  <dt className="text-xs text-stone-500">Referência</dt>
+                  <dd className="font-mono font-medium">{selected.code}</dd>
                 </div>
                 <div>
-                  <dt className="text-stone-500">Hotel</dt>
-                  <dd>{selected.hotel.name}</dd>
+                  <dt className="text-xs text-stone-500">Horário previsto</dt>
+                  <dd className="font-mono font-medium">
+                    IN {selected.expectedCheckInTime ?? "14:00"} · OUT{" "}
+                    {selected.expectedCheckOutTime ?? "12:00"}
+                  </dd>
                 </div>
                 <div>
-                  <dt className="text-stone-500">Hóspede</dt>
+                  <dt className="text-xs text-stone-500">Hóspede</dt>
                   <dd>
                     {gate.primary
                       ? `${gate.primary.guest.firstName} ${gate.primary.guest.lastName}`
@@ -243,17 +271,17 @@ export function CheckInClient({
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-stone-500">Cliente central</dt>
+                  <dt className="text-xs text-stone-500">Cliente central</dt>
                   <dd>{gate.linked ? "Ligado" : "Em falta"}</dd>
                 </div>
                 <div>
-                  <dt className="text-stone-500">Datas</dt>
-                  <dd>
+                  <dt className="text-xs text-stone-500">Datas</dt>
+                  <dd className="tabular-nums">
                     {selected.arrivalDate.slice(0, 10)} → {selected.departureDate.slice(0, 10)}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-stone-500">Hóspedes / quarto</dt>
+                  <dt className="text-xs text-stone-500">Hóspedes / quarto</dt>
                   <dd>
                     {selected.adults + (selected.children ?? 0)} ({selected.adults} ad.
                     {selected.children ? `, ${selected.children} cr.` : ""}) ·{" "}

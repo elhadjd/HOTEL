@@ -314,7 +314,7 @@ export function CustomersClient({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Nome, email, telefone, NIF, código…"
-            className="font-ui h-10 min-w-[16rem] flex-1 rounded-md border border-sand-200 bg-white px-3 text-sm"
+            className="font-ui h-10 w-full sm:min-w-[16rem] sm:flex-1 rounded-md border border-sand-200 bg-white px-3 text-sm"
           />
           <Button type="submit" disabled={pending}>
             Pesquisar

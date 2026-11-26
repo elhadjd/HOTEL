@@ -409,8 +409,8 @@ export function ReservationsWorkspaceClient({
 
       {/* Tabs + search + actions */}
       <div className="surface p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="no-scrollbar -mx-1 flex flex-nowrap gap-1.5 overflow-x-auto px-1 pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
             {tabs.map((item) => {
               const active = tab === item.key;
               return (
@@ -418,7 +418,7 @@ export function ReservationsWorkspaceClient({
                   key={item.key}
                   type="button"
                   onClick={() => setTab(item.key)}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                     active
                       ? "bg-ink-900 text-white"
                       : item.alert
@@ -463,7 +463,7 @@ export function ReservationsWorkspaceClient({
                   setCheckOutTime(schedulePolicy.checkOutTime);
                   setCreateOpen(true);
                 }}
-                className="gap-2"
+                className="w-full gap-2 sm:w-auto"
               >
                 <Plus className="h-4 w-4" />
                 Nova reserva
@@ -473,7 +473,7 @@ export function ReservationsWorkspaceClient({
         </div>
 
         <div className="mt-3">
-          <div className="relative max-w-md">
+          <div className="relative w-full max-w-md">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
             <input
               value={q}
@@ -485,7 +485,7 @@ export function ReservationsWorkspaceClient({
         </div>
       </div>
 
-      {/* Reservations table */}
+      {/* Reservations responsive list (cards on mobile, table on desktop) */}
       <div className="surface overflow-hidden">
         {visible.length === 0 ? (
           <EmptyState
@@ -493,17 +493,160 @@ export function ReservationsWorkspaceClient({
             description="Ajuste o separador ou crie uma nova reserva."
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="data-table min-w-[980px]">
-              <thead>
-                <tr>
-                  <th>Código / Hóspede</th>
-                  <th>Estadia &amp; Horários</th>
-                  <th>Quarto(s)</th>
-                  <th>Estado</th>
-                  <th className="text-right">Acções</th>
-                </tr>
-              </thead>
+          <>
+            <div className="divide-y divide-sand-100 md:hidden">
+              {visible.map((r) => {
+                const canLateCheckIn =
+                  canCheckIn &&
+                  ["CONFIRMED", "PENDING"].includes(r.status) &&
+                  (r.window.bucket === "TODAY" || r.window.isLateArrivalEligible);
+                return (
+                  <div key={r.id} className="space-y-3 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-mono text-sm font-semibold text-ink-900">
+                            {r.code}
+                          </span>
+                          {r.isRetroactive ? (
+                            <span className="rounded bg-stone-200 px-1.5 py-0.5 text-[10px] font-medium text-stone-700">
+                              Retroativa
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="truncate text-sm font-medium text-stone-700">
+                          {r.primaryGuest?.name ?? "Sem hóspede atribuído"}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-1">
+                        <StatusPill value={r.status} />
+                        {r.window.bucket === "OVERDUE" ? (
+                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-danger">
+                            {r.window.isExpired ? "Expirada" : "Atrasada"}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 rounded-lg bg-sand-50/80 p-2.5 text-xs">
+                      <div>
+                        <p className="text-stone-400">Datas</p>
+                        <p className="font-medium tabular-nums text-ink-900">
+                          {r.arrivalDate} → {r.departureDate}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-stone-400">Quarto(s)</p>
+                        <p className="font-mono font-medium text-ink-900">
+                          {r.rooms.map((rm) => rm.code).join(", ") || "—"}
+                        </p>
+                      </div>
+                      <div className="col-span-2 flex flex-wrap items-center gap-1.5 pt-0.5">
+                        <span className="inline-flex items-center gap-1 font-mono text-stone-600">
+                          <Clock className="h-3 w-3 text-stone-400" />
+                          IN {r.expectedCheckInTime} · OUT {r.expectedCheckOutTime}
+                        </span>
+                        {r.earlyCheckInRequested ? (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                            Early Check-in
+                          </span>
+                        ) : null}
+                        {r.lateCheckOutRequested ? (
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              r.lateCheckOutApproved
+                                ? "bg-teal-100 text-teal-900"
+                                : "bg-amber-100 text-amber-900"
+                            }`}
+                          >
+                            {r.lateCheckOutApproved ? "Late aprovado" : "Late Check-out"}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {canConfirm && ["DRAFT", "PENDING"].includes(r.status) ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={pending}
+                          onClick={() => runAction(r.id, "confirm")}
+                          className="gap-1"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                          Confirmar
+                        </Button>
+                      ) : null}
+                      {canLateCheckIn ? (
+                        <Link
+                          href={`/check-in?reservationId=${r.id}`}
+                          className="inline-flex h-8 items-center gap-1 rounded-md bg-teal-600 px-2.5 text-xs font-medium text-white hover:bg-teal-500"
+                        >
+                          <LogIn className="h-3.5 w-3.5" />
+                          Check-in
+                        </Link>
+                      ) : null}
+                      {canWrite &&
+                      !["CANCELLED", "CHECKED_OUT", "NO_SHOW"].includes(r.status) ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={pending}
+                          onClick={() => openScheduleEditor(r)}
+                          className="gap-1"
+                        >
+                          <CalendarClock className="h-3.5 w-3.5" />
+                          Horário
+                        </Button>
+                      ) : null}
+                      {canConfirm &&
+                      ["DRAFT", "PENDING", "CONFIRMED"].includes(r.status) &&
+                      r.window.bucket === "OVERDUE" ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={pending}
+                          onClick={() => runAction(r.id, "no-show")}
+                          className="gap-1 text-amber-800 hover:bg-amber-50"
+                        >
+                          <UserX className="h-3.5 w-3.5" />
+                          No-Show
+                        </Button>
+                      ) : null}
+                      {canConfirm &&
+                      ["DRAFT", "PENDING", "CONFIRMED"].includes(r.status) ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={pending}
+                          onClick={() => runAction(r.id, "cancel")}
+                          className="text-danger hover:bg-red-50"
+                        >
+                          Cancelar
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="hidden overflow-x-auto md:block">
+              <table className="data-table min-w-[920px]">
+                <thead>
+                  <tr>
+                    <th>Código / Hóspede</th>
+                    <th>Estadia &amp; Horários</th>
+                    <th>Quarto(s)</th>
+                    <th>Estado</th>
+                    <th className="text-right">Acções</th>
+                  </tr>
+                </thead>
               <tbody>
                 {visible.map((r) => {
                   const canLateCheckIn =
@@ -647,7 +790,8 @@ export function ReservationsWorkspaceClient({
                 })}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </div>
 

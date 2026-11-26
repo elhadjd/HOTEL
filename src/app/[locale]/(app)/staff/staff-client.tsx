@@ -450,10 +450,10 @@ export function StaffClient({
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
                   {canWrite ? (
                     <>
-                      <div className="w-56">
+                      <div className="w-full sm:w-56">
                         <SearchableSelect
                           options={roleOptions}
                           value={m.role.code}

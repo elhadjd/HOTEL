@@ -316,7 +316,7 @@ export function CheckOutClient({
                     href={`/integrations/invoices/${eligibleInvoice.id}`}
                     className="text-teal-700 underline"
                   >
-                    {eligibleInvoice.orderReference ?? eligibleInvoice.externalId} ·{" "}
+                    {(eligibleInvoice.orderReference && !eligibleInvoice.orderReference.startsWith("HOT-INV-") ? eligibleInvoice.orderReference : "Rascunho local")} ·{" "}
                     {eligibleInvoice.centralState ?? eligibleInvoice.status}
                   </Link>
                 ) : (

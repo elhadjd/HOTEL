@@ -302,7 +302,7 @@ export function StayFoliosPanel({
       {active ? (
         <form
           onSubmit={createFolio}
-          className="font-ui mt-4 grid gap-2 border-t border-sand-100 pt-4 text-sm sm:grid-cols-5"
+          className="font-ui mt-4 grid gap-2 border-t border-sand-100 pt-4 text-sm grid-cols-1 sm:grid-cols-2 lg:grid-cols-5"
         >
           <input
             required

@@ -252,7 +252,7 @@ export function RatesClient({
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Pesquisar código / nome…"
-          className="h-10 w-56 rounded-md border border-sand-200 bg-white px-3 text-sm"
+          className="h-10 w-full sm:w-56 rounded-md border border-sand-200 bg-white px-3 text-sm"
         />
         <label className="font-ui flex items-center gap-2 text-sm text-stone-600">
           <input

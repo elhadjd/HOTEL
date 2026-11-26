@@ -253,7 +253,7 @@ export function GuestMappingClient({
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Pesquisar por NIF, email, telefone…"
-          className="font-ui h-10 min-w-[14rem] flex-1 rounded-md border border-sand-200 px-3 text-sm"
+          className="font-ui h-10 w-full sm:min-w-[14rem] sm:flex-1 rounded-md border border-sand-200 px-3 text-sm"
         />
         <Button type="submit" disabled={pending}>
           Pesquisar
