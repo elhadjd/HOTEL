@@ -10,7 +10,7 @@ Inclui:
 **Base:** `{HOST}/api/v1/aggregate/multi-company`  
 **Alias:** `{HOST}/api/v1/multi-company`  
 **Auth (estes endpoints):** `Authorization: Bearer mca_…` (chave devolvida no `POST /onboarding/register` ou criada no SIGESC)  
-**Scopes:** `products` · `sales` · ou `all`
+**Scopes:** `products` · `sales` · `payments` · ou `all`
 
 ---
 
@@ -18,20 +18,24 @@ Inclui:
 
 ```text
 1. Guardar mca_  (da criação da empresa ou do onboarding)
-2. GET  /products?company_id=…&kind=product|service   ← escolher product_id + preço
+2. GET  /products?company_id=…&kind=product|service   ← escolher product_id + preço oficial
 3. (opcional) GET/POST/PATCH /customers               ← ver API_AGGREGATE_CUSTOMERS.md; ou dados na fatura
-4. POST /sales   com items[] + external_id            ← cria Cotação/Proforma
-5. (opcional) POST /sales/{sale_key}/items            ← acrescentar linhas
-6. GET  /sales/{sale_key}                             ← confirmar totais
-7. Publicar / pagar / stock  →  dentro do SIGESC UI   ← NÃO via API Aggregate
+4. POST /sales   com items[] + external_id            ← cria Cotação/Proforma (201 novo / 200 idempotente)
+5. (opcional) POST /sales/{sale_key}/items            ← acrescentar linhas (com Idempotency-Key)
+6. GET  /sales/{sale_key}                             ← confirmar totais, impostos e rest_payable
+7. POST /sales/{sale_key}/publish                     ← publicar como documento fiscal definitivo (FT) com numeração + SAF-T-AO + stock
+8. GET  /payment-methods?company_id=…                 ← listar métodos de pagamento e caixas/contas bancárias válidas
+9. POST /sales/{sale_key}/payments                    ← liquidar total ou parcialmente (recibo RC + atualização de rest_payable/Pago)
 ```
+
+> **Estados canónicos no SIGESC:** `Cotação`, `Proforma`, `Publicado`, `Pago`, `Anulado` (e campo `payment_status`: `unpaid` | `partial` | `paid`).
 
 ---
 
 # Parte A — Catálogo de produtos (lista completa)
 
 > Secção alinhada ao contrato actual de `GET /products` / `GET /products/{id}`  
-> (ver também `MULTI_COMPANY_AGGREGATE_API.md` §4.4 e `API_AGGREGATE_CLINIC_PHARMACY.md` §3).
+> (ver também `MULTI_COMPANY_AGGREGATE_API.md` §4.4).
 
 ## A.1 Endpoints
 
@@ -48,11 +52,11 @@ GET /api/v1/aggregate/multi-company/products/{id}
 |-------|-----------|
 | `company_id` | Filtrar empresa ligada à chave |
 | `kind` / `catalog` | `product` / `pharmacy` = produtos · `service` = serviços · `all` (default) |
-| `search` | Nome / código |
+| `search` / `q` | Nome / código / referência / código de barras |
 | `status` | Estado (`estado`) |
 | `category_id` | Categoria |
 | `product_type_id` | Tipo |
-| `from` / `to` | Intervalo de datas |
+| `from` / `to` (`date_from` / `date_to`) | Intervalo de datas |
 | `page` / `per_page` | Paginação (default 25, max 100) |
 
 ### Exemplos
@@ -72,11 +76,12 @@ Cada produto inclui campos “amigáveis” já normalizados:
 | `id` | **Usar como `product_id` nas linhas da fatura** |
 | `company_id` | Empresa dona |
 | `name` | Nome |
+| `kind` | `product` \| `service` |
 | `description` | Descrição |
 | `code` / `reference` / `barcode` | Códigos |
 | `image` | Imagem |
 | `status` | Estado |
-| `sale_price` / `price` | Preço de venda |
+| `sale_price` / `price` | Preço de venda oficial |
 | `sale_price_ex_tax` | Preço s/ IVA |
 | `purchase_price` / `cost` | Preço de custo |
 | `purchase_price_ex_tax` | Custo s/ IVA |
@@ -97,55 +102,40 @@ Cada produto inclui campos “amigáveis” já normalizados:
 
 **Detalhe** (`GET /products/{id}`) acrescenta: `min_quantity`, `manufacturer`.
 
-Envelope:
-
-```json
-{
-  "success": true,
-  "data": [ /* produtos */ ],
-  "meta": {
-    "pagination": {
-      "current_page": 1,
-      "per_page": 25,
-      "total": 120,
-      "last_page": 5
-    }
-  }
-}
-```
-
 **Nota para faturas:** nas linhas usem `product_id` = `id` do catálogo. Se não enviarem `unit_price`, o SIGESC usa `sale_price` do produto. O imposto da linha usa `tax_percent` do produto.
 
 ---
 
-# Parte B — Criação de faturas (cuidado obrigatório)
+# Parte B — Criação de faturas (Cotação / Proforma) e Adição de Linhas
 
 ## B.1 Regras de ouro
 
-1. **Só criar em `Cotação` ou `Proforma`** via API.  
-   Não enviar `Publicado` / `Pago` — a publicação no SIGESC dispara stock, numeração fiscal e pagamentos. A API **rejeita** esses estados.
-2. **Sempre enviar `external_id`** único no vosso sistema (idempotência). Repetir o mesmo `external_id` **não junta itens** — devolve a fatura existente (`200`, `idempotent: true`).
+1. **Criar em `Cotação` ou `Proforma`** via `POST /sales`.  
+   Não enviar `Publicado` / `Pago` no create — a emissão definitiva segue o endpoint dedicado `POST /sales/{sale_key}/publish` para garantir numeração fiscal sequencial, hash SAF-T-AO e dedução de stock.
+2. **Sempre enviar `external_id`** único no vosso sistema (idempotência garantida em base de dados via `aggregate_sale_idempotencies`). Repetir o mesmo `external_id` **não junta itens** — devolve a fatura existente (`200`, `idempotent: true`).
 3. **Pelo menos uma linha** em `items[]` (salvo `allow_empty_items: true`, não recomendado).
 4. **`company_id`** tem de estar ligado à chave `mca_`.
 5. Produtos têm de existir nessa empresa (`GET /products` antes).
-6. Depois de criar: **publicar / cobrar / stock no SIGESC** (UI ou processos internos), não nesta API.
+6. **Correlação obrigatória:** enviar `X-Request-Id` em cada pedido; o SIGESC devolve o mesmo header em todas as respostas (incluindo erros).
 
 ## B.2 Endpoints
 
 ```http
-POST /api/v1/aggregate/multi-company/sales
-POST /api/v1/aggregate/multi-company/sales/{id}/items
+GET  /api/v1/aggregate/multi-company/sales
 GET  /api/v1/aggregate/multi-company/sales/{sale_key}
-POST /api/v1/aggregate/multi-company/inbound
-POST /api/v1/aggregate/multi-company/inbound/sales
+POST /api/v1/aggregate/multi-company/sales
+POST /api/v1/aggregate/multi-company/sales/{sale_key}/items
+POST /api/v1/aggregate/multi-company/sales/{sale_key}/publish
+POST /api/v1/aggregate/multi-company/sales/{sale_key}/payments
+GET  /api/v1/aggregate/multi-company/payment-methods
 ```
 
-**Scope:** `sales` ou `all`  
-`{id}` / `{sale_key}`: `billing-123` ou `123` (só billing para write).
+**Scopes:** `sales` (ou `all`) para vendas/itens/publicação; `sales` **ou** `payments` (ou `all`) para métodos de pagamento e liquidação.  
+`{sale_key}`: `billing-123` ou `123` (apenas vendas `billing` aceitam escrita/publicação/liquidação).
 
 ---
 
-## B.3 `POST /sales` — criar fatura
+## B.3 `POST /sales` — criar Cotação/Proforma
 
 ### Headers
 
@@ -153,79 +143,201 @@ POST /api/v1/aggregate/multi-company/inbound/sales
 Authorization: Bearer mca_…
 Content-Type: application/json
 Accept: application/json
+X-Request-Id: <uuid>
 ```
 
-### Exemplo (único) — payload completo
+### Exemplo de payload
 
 ```json
 {
   "company_id": 88,
-  "external_id": "PHARM-INV-2026-0042",
-  "partner": "clinic_pharmacy",
-  "state": "Cotação",
-  "date": "2026-10-23",
-  "date_due": "2026-10-30",
-  "notes": "Receita / atendimento #991",
-  "warehouse_id": 5,
-  "customer_name": "Maria Silva",
-  "customer_email": "maria@exemplo.com",
-  "customer_phone": "+244900000000",
-  "customer_nif": "000123456",
+  "external_id": "HOTEL-INV-2026-0042",
+  "partner": "hotel",
+  "state": "Proforma",
+  "date": "2026-11-26",
+  "date_due": "2026-12-03",
+  "notes": "Estadia #stay-991",
+  "customer_id": 77,
   "items": [
     {
       "product_id": 55,
       "quantity": 2,
-      "unit_price": 1500,
+      "unit_price": 20000,
       "discount": 0,
-      "description": "Medicamento A — caixa"
-    },
-    {
-      "product_id": 90,
-      "quantity": 1
+      "description": "Noite Quarto Deluxe"
     }
   ]
 }
 ```
 
-### Campos
-
-| Campo | Obrigatório | Descrição |
-|-------|-------------|-----------|
-| `company_id` | **sim** | Empresa SIGESC (ligada à chave) |
-| `items` / `lines` | **sim*** | Lista de linhas (*salvo `allow_empty_items`) |
-| `items[].product_id` | **sim** | ID do `GET /products` (aliases: `id`, `produtos_id`) |
-| `items[].quantity` / `qty` | recomendado | Default `1` |
-| `items[].unit_price` / `price` / `sale_price` | opcional | Se omitido → `sale_price` do produto |
-| `items[].discount` | opcional | Desconto em valor da linha |
-| `items[].description` | opcional | Nota parceiro (guardada em metadata da linha) |
-| `items[].warehouse_id` | opcional | Sobrescreve armazém da linha |
-| `external_id` / `external_reference` | **fortemente recomendado** | Idempotência |
-| `partner` | opcional | Ex.: `clinic_pharmacy` |
-| `state` | opcional | Só `Cotação` / `Proforma` (aliases: `draft`, `quote`, `proforma`). Default `Cotação` |
-| `date` / `document_date` / `date_order` | opcional | Default hoje |
-| `date_due` | opcional | Default = `date` |
-| `warehouse_id` / `armagen_id` | opcional | Armazém; default = primeiro da empresa |
-| `customer_id` / `costumer_id` | opcional | Cliente já existente |
-| `customer_name` / `customer_email` / `customer_phone` / `customer_nif` | opcional | Cria/actualiza cliente se não houver `customer_id` |
-| `customer` | opcional | Objecto aninhado `{ name, email, phone, nif }` |
-| `notes` | opcional | Notas (metadata) |
-| `allow_empty_items` | opcional | Default `false` — não usar em produção |
-
-### Cálculo de cada linha
-
-```text
-net        = (unit_price × quantity) − discount
-tax_amount = net × (product.tax_percent / 100)
-line_total = net + tax_amount
-```
-
-Totais da fatura: soma das linhas → `total` / `rest_payable` / `tax` / `subtotal`.
+### Respostas
+- **`201 Created`** — `{ "success": true, "data": { "created": true, "idempotent": false, "sale": { … } } }`
+- **`200 OK`** — mesmo `external_id` → `{ "success": true, "data": { "created": false, "idempotent": true, "sale": { … } } }` (sem duplicar linhas)
+- **`422 Unprocessable Entity`** — validação (`company_id` não autorizado, sem itens, `product_id` inexistente, `state` fora de `Cotação`/`Proforma`, `customer_id` inválido)
 
 ---
 
-## B.4 Respostas
+## B.4 `POST /sales/{sale_key}/items` — acrescentar linhas
 
-### `201 Created` — nova fatura
+Só em estados editáveis: `Cotação`, `Proforma`. Devolve **`409 Conflict`** se já `Publicado`, `Pago` ou `Anulado`.
+
+```http
+POST /api/v1/aggregate/multi-company/sales/billing-123/items
+Authorization: Bearer mca_…
+Idempotency-Key: ui-append-550e8400
+```
+
+```json
+{
+  "idempotency_key": "ui-append-550e8400",
+  "items": [
+    { "product_id": 77, "quantity": 1, "unit_price": 5000, "discount": 0 }
+  ]
+}
+```
+
+- Executa com lock `FOR UPDATE` e idempotência por `(company_id, 'add_items', idempotency_key)`.
+- Resposta **`200`**: `{ "success": true, "data": { …sale } }` com `subtotal`, `tax`, `total` e `rest_payable` recalculados.
+
+---
+
+# Parte C — Publicação Fiscal, Métodos de Pagamento e Liquidação
+
+## C.1 `GET /payment-methods` — métodos de pagamento e contas/caixas
+
+**Scope:** `sales` **ou** `payments` (ou `all`).
+
+```http
+GET /api/v1/aggregate/multi-company/payment-methods?company_id=88
+Authorization: Bearer mca_…
+```
+
+Resposta **`200`**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "payment_methods": [
+      {
+        "id": 10,
+        "company_id": 88,
+        "name": "Dinheiro",
+        "icon": "cash",
+        "is_cash": true,
+        "status": true,
+        "default_bank_account_id": 4,
+        "bank_accounts": [
+          { "id": 4, "name": "Caixa Principal", "reference": "CASH-88", "iban": null }
+        ]
+      }
+    ],
+    "bank_accounts": [
+      {
+        "id": 4,
+        "company_id": 88,
+        "name": "Caixa Principal",
+        "reference": "CASH-88",
+        "account_number": null,
+        "iban": null,
+        "is_cash": true
+      }
+    ]
+  }
+}
+```
+
+Se a empresa ainda não tiver método/caixa configurado, o SIGESC inicializa automaticamente a caixa padrão via `CompanyDefaultCashBootstrapService`.
+
+---
+
+## C.2 `POST /sales/{sale_key}/publish` — publicar documento fiscal
+
+**Scope:** `sales` (ou `all`).
+
+Converte uma `Cotação` ou `Proforma` (`PP`) em documento fiscal definitivo imutável (padrão `FT` — Fatura) reutilizando exatamente o fluxo interno do SIGESC:
+- Numeração sequencial fiscal (`BillingDocumentNumberService`)
+- Hash SAF-T-AO (`InvoiceGenerator::generateSAFTHash`)
+- Dedução de stock para artigos inventariáveis (`StockService::deductStock`)
+- Regra de prazos de pagamento (`PaymentTermRuleService`) e elegibilidade AGT FE
+- Transação atómica com `FOR UPDATE` e idempotência em `aggregate_sale_idempotencies`
+
+```http
+POST /api/v1/aggregate/multi-company/sales/billing-123/publish
+Authorization: Bearer mca_…
+Idempotency-Key: publish-inv-123-uuid
+Content-Type: application/json
+```
+
+```json
+{
+  "document_type": "receipt",
+  "idempotency_key": "publish-inv-123-uuid",
+  "date_due": "2026-12-10",
+  "notes": "Publicação no check-out"
+}
+```
+
+- `document_type`: `"receipt"` / `"FT"` (default), `"advance"` / `"FA"`, `"global"` / `"FG"`, `"generic"` / `"GF"`. (`"FR"` é rejeitado com `422` porque Fatura-Recibo não pode ser publicada sem pagamento.)
+- Resposta **`200`**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "published": true,
+    "idempotent": false,
+    "document_number": "FT SG2026/1",
+    "sale": {
+      "id": 123,
+      "sale_key": "billing-123",
+      "document_number": "FT SG2026/1",
+      "document_type": "FT",
+      "state": "Publicado",
+      "payment_status": "unpaid",
+      "total": 45600,
+      "rest_payable": 45600,
+      "collected": 0
+    }
+  }
+}
+```
+
+- Retries com a mesma `idempotency_key` devolvem **`200`** com `published: false, idempotent: true`.
+- Erros: `403` (sem scope `sales`), `404` (venda fora das empresas da chave), `409` (já `Publicado`/`Pago`/`Anulado` com chave diferente), `422` (sem linhas, tipo inválido, cliente em falta).
+
+---
+
+## C.3 `POST /sales/{sale_key}/payments` — liquidar (pagamento parcial ou total)
+
+**Scope:** `sales` **ou** `payments` (ou `all`).
+
+Regista um pagamento/recibo (`RC`) contra uma fatura `Publicado` usando `PaymentsServices::BillingCreatePayment` e `BankAccountController::Transaction`, dentro de transação atómica com `FOR UPDATE` e chave única `(company_id, 'payment', idempotency_key)`.
+
+```http
+POST /api/v1/aggregate/multi-company/sales/billing-123/payments
+Authorization: Bearer mca_…
+Idempotency-Key: pay-inv-123-p1
+Content-Type: application/json
+```
+
+```json
+{
+  "idempotency_key": "pay-inv-123-p1",
+  "external_payment_id": "pay-inv-123-p1",
+  "amount": 25000,
+  "payment_method_id": 10,
+  "bank_account_id": 4,
+  "type": "payment",
+  "date": "2026-11-26",
+  "reference": "TPA-8821",
+  "notes": "Pagamento parcial no check-out"
+}
+```
+
+### Respostas
+- **`201 Created`** — novo pagamento registado (`created: true, idempotent: false`)
+- **`200 OK`** — replay com a mesma `idempotency_key` (`created: false, idempotent: true`, zero duplicação)
 
 ```json
 {
@@ -233,197 +345,52 @@ Totais da fatura: soma das linhas → `total` / `rest_payable` / `tax` / `subtot
   "data": {
     "created": true,
     "idempotent": false,
-    "hint": "Invoice created as Cotação/Proforma. Publish and take payment inside SIGESC (stock + fiscal). Use sale_key for later GET /sales/{sale_key} or POST …/items.",
+    "payment": {
+      "id": 501,
+      "number": "RC SG2026/1",
+      "amount": 25000,
+      "remaining_payable": 20600,
+      "date": "2026-11-26",
+      "status": "Publicado",
+      "type": "payment",
+      "bank_account_id": 4,
+      "method": { "id": 10, "name": "Dinheiro" },
+      "notes": "Ref: TPA-8821 | Pagamento parcial no check-out"
+    },
     "sale": {
       "id": 123,
       "sale_key": "billing-123",
-      "source": "billing",
-      "company_id": 88,
-      "order_reference": "PHARM-INV-2026-0042",
-      "state": "Cotação",
-      "total": 3450.0,
-      "subtotal": 3000.0,
-      "tax": 450.0,
-      "rest_payable": 3450.0,
-      "date": "2026-10-23",
-      "date_due": "2026-10-30",
-      "customer": {
-        "id": 77,
-        "name": "Maria",
-        "surname": "Silva",
-        "email": "maria@exemplo.com"
-      },
-      "items": [
-        {
-          "id": 1,
-          "quantity": 2,
-          "unit_price": 1500,
-          "discount": 0,
-          "tax_percent": 14,
-          "tax_amount": 420,
-          "line_total": 3420,
-          "product": {
-            "id": 55,
-            "name": "Medicamento A",
-            "code": "MED-A",
-            "sale_price": 1500
-          }
-        }
-      ],
-      "payments": []
+      "state": "Publicado",
+      "payment_status": "partial",
+      "total": 45600,
+      "rest_payable": 20600,
+      "collected": 25000
     }
   }
 }
 ```
 
-### `200 OK` — idempotente
+Quando `rest_payable` atinge `0`, a fatura passa automaticamente a `state: "Pago"` e `payment_status: "paid"`.
 
-Mesmo `external_id` → `created: false`, `idempotent: true`, `sale` = fatura existente **sem alterar itens**.
-
-### `422` — validação (exemplos)
-
-| Situação | Mensagem típica |
-|----------|-----------------|
-| Sem `company_id` / não ligada | `company_id is required and must be linked…` |
-| Sem itens | `At least one item is required…` |
-| `product_id` inválido | `Product #… not found… List catalog with GET /products first.` |
-| `state: Publicado` | `API create only allows Cotação or Proforma…` |
-| Sem utilizadores na empresa | `Company has no users to own the invoice.` |
-| `warehouse_id` inválido | `Warehouse #… not found…` |
-| Cliente `customer_id` inválido | `Customer not found for this company.` |
-
-```json
-{
-  "success": false,
-  "error": { "message": "…", "code": 422 },
-  "errors": { "state": ["…"] }
-}
-```
-
-### `401` / `403` / `429`
-
-Chave em falta/inválida · scope `sales` em falta · rate limit.
+### Erros de liquidação
+| HTTP | Causa |
+|------|-------|
+| `401` | Chave inválida/revogada/expirada |
+| `403` | Scope sem `sales` nem `payments` |
+| `404` | Fatura inexistente ou pertencente a outra empresa |
+| `409` | Fatura ainda em `Cotação`/`Proforma`, já `Pago` (`rest_payable = 0`), ou `Anulado` |
+| `422` | `idempotency_key` em falta, `amount <= 0`, `amount > rest_payable`, `payment_method_id` ou `bank_account_id` inválido/de outra empresa |
 
 ---
 
-## B.5 `POST /sales/{sale_key}/items` — acrescentar linhas
+## Checklist equipa HOTEL
 
-Só em estados editáveis: `Cotação`, `Proforma`.
+- [ ] Chave `mca_` com scopes `onboarding`, `users`, `customers`, `products`, `sales`, `payments` (ou `all`)
+- [ ] Listar produtos com `kind=product|service` e sincronizar mapeamentos em edições de preço
+- [ ] Gerar `external_id` único por fatura e enviar `Idempotency-Key` em `addItems`, `publish` e `payments`
+- [ ] Tratar `201` (novo) vs `200` (idempotente) e `503`/`504` como `RECONCILIATION_REQUIRED`
+- [ ] Carregar métodos reais via `GET /payment-methods` antes de liquidar
+- [ ] Exigir permissão RBAC `integrations.invoices.settle` para publicar e liquidar faturas no HOTEL
 
-```http
-POST /sales/billing-123/items
-Authorization: Bearer mca_…
-```
-
-```json
-{
-  "items": [
-    { "product_id": 77, "quantity": 1, "unit_price": 500 }
-  ]
-}
-```
-
-Resposta: objecto `sale` actualizado (`success` + `data`).
-
----
-
-## B.6 Consultar fatura
-
-```http
-GET /sales/billing-123
-GET /sales?company_id=88&source=billing&state=Cotação
-```
-
----
-
-## B.7 Alternativa: webhook inbound (envelope estilo HUB)
-
-```http
-POST /inbound
-POST /inbound/sales
-Authorization: Bearer mca_…
-Idempotency-Key: <uuid>
-```
-
-```json
-{
-  "idempotency_key": "550e8400-e29b-41d4-a716-446655440000",
-  "strict": false,
-  "operations": [
-    {
-      "resource": "sales",
-      "action": "upsert",
-      "company_external_id": "88",
-      "data": [
-        {
-          "id": "PHARM-INV-2026-0042",
-          "customer_name": "Maria Silva",
-          "items": [{ "product_id": 55, "quantity": 2 }]
-        }
-      ]
-    }
-  ]
-}
-```
-
-A dedupe real continua a ser o `external_id` / `id` da venda (não só o header). Detalhes: `API_AGGREGATE_CLINIC_PHARMACY.md` §4.3.
-
----
-
-## B.8 Exemplo cURL (catálogo → fatura)
-
-```bash
-export KEY='mca_…'
-export HOST='https://app.sisgesc.net'
-export BASE="$HOST/api/v1/aggregate/multi-company"
-
-# 1) Catálogo
-curl -sS -H "Authorization: Bearer $KEY" \
-  "$BASE/products?company_id=88&kind=product&per_page=50"
-
-# 2) Criar fatura (Cotação)
-curl -sS -X POST \
-  -H "Authorization: Bearer $KEY" \
-  -H "Content-Type: application/json" \
-  "$BASE/sales" \
-  -d '{
-    "company_id": 88,
-    "external_id": "PHARM-INV-2026-0042",
-    "partner": "clinic_pharmacy",
-    "customer_name": "Maria Silva",
-    "customer_email": "maria@exemplo.com",
-    "items": [
-      { "product_id": 55, "quantity": 2, "unit_price": 1500 }
-    ]
-  }'
-
-# 3) Confirmar
-curl -sS -H "Authorization: Bearer $KEY" \
-  "$BASE/sales/billing-123"
-```
-
----
-
-## B.9 Checklist equipa parceira
-
-- [ ] Chave `mca_` com scopes `products` + `sales` (ou `all`)
-- [ ] Listar produtos com `kind=product|service` e guardar `id` / `sale_price` / `tax_percent`
-- [ ] Gerar `external_id` único por fatura no vosso sistema
-- [ ] `POST /sales` só com `Cotação` ou `Proforma` + ≥1 item
-- [ ] Tratar `201` (nova) vs `200` idempotente (não reenviar linhas esperando merge)
-- [ ] Guardar `sale.sale_key` / `sale.id`
-- [ ] Publicar e cobrar **no SIGESC** (não nesta API)
-- [ ] (Opcional) Acrescentar linhas com `POST /sales/{sale_key}/items` enquanto editável
-
----
-
-## Relacionado
-
-| Doc | Conteúdo |
-|-----|----------|
-| [API_AGGREGATE_COMPANY_CREATE.md](./API_AGGREGATE_COMPANY_CREATE.md) | Criar empresa (host da marca) + emitir `mca_` |
-| [API_AGGREGATE_ONBOARDING.md](./API_AGGREGATE_ONBOARDING.md) | Bootstrap empresa já existente |
-| [API_AGGREGATE_CLINIC_PHARMACY.md](./API_AGGREGATE_CLINIC_PHARMACY.md) | Farmácia / inbound |
-| [MULTI_COMPANY_AGGREGATE_API.md](./MULTI_COMPANY_AGGREGATE_API.md) | Índice Aggregate |
-
-Código: `ProductController`, `SaleController@store` / `addItems`, `MultiCompanySaleWriteService`.
+Código SIGESC: `SaleController`, `PaymentMethodController`, `MultiCompanySaleWriteService`, `MultiCompanySaleSettlementService`.  
+Código HOTEL: `http-adapter.ts`, `mock-adapter.ts`, `invoice-service.ts`, `invoice-settlement-actions.tsx`.

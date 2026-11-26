@@ -30,7 +30,8 @@ Fluxo recomendado no produto parceiro:
 | Onde se cria | SIGESC → **Configurações → API multi-empresa** (Admin ou Manager) |
 | Header | `Authorization: Bearer mca_xxxxxxxx…` |
 | Alternativa | `X-Api-Key: mca_xxxxxxxx…` |
-| Scope necessário | `onboarding` **ou** `all` (para `/onboarding`) · `users` **ou** `all` (para `/users`) |
+| Correlação | `X-Request-Id: <uuid>` (enviado pelo cliente e devolvido em todas as respostas, incluindo erros) |
+| Scope necessário | `onboarding` **ou** `all` (para `/onboarding` e `/bootstrap`) · `users` **ou** `all` (para `/users`) · sem scope específico para `GET /me` |
 
 A chave só devolve empresas **ligadas** a ela (empresa dona + códigos `MLC-…`).
 
@@ -44,6 +45,8 @@ A chave só devolve empresas **ligadas** a ela (empresa dona + códigos `MLC-…
 | Alias legado | `{HOST}/api/v1/multi-company` |
 
 Exemplos de host: `https://app.sisgesc.net`, `https://app.zyvoerp.com`.
+
+`GET /me` devolve os metadados actuais da chave (`key.name`, `key.scopes`, `key.status`, `owner_company_id`, `company_ids`, `companies[]`) e é usado pelo HOTEL no teste de ligação para refrescar os scopes persistidos.
 
 ---
 

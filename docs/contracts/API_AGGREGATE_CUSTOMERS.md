@@ -53,9 +53,11 @@ Accept: application/json
 | `company_reference` / `company_references` | Alternativa por referência |
 | `search` / `q` | Nome, apelido, email, telefone, NIF, `customer_code` |
 | `status` | `active` / `1` / `true` ou `inactive` / `0` / `false` |
-| `per_page` | Paginação |
-| `sort` / `direction` | `id`, `name`, `created_at`, `updated_at`, `company_id` |
-| `date_from` / `date_to` | Intervalo em `created_at` |
+| `per_page` | Paginação (default `25`, max `100`) |
+| `sort` / `direction` / `order` | `id`, `name`, `created_at`, `updated_at`, `company_id` (`asc` \| `desc`) |
+| `date_from` / `date_to` (`from` / `to`) | Intervalo em `created_at` (`YYYY-MM-DD`) |
+
+Header recomendado: `X-Request-Id: <uuid>` (devolvido em todas as respostas).
 
 Exemplos:
 
@@ -82,8 +84,10 @@ GET …/customers/120?company_id=22
       "email": "maria@exemplo.com",
       "phone": "+244900000000",
       "nif": "5000000000",
+      "address": "Rua 1",
       "city": "Luanda",
       "province": "Luanda",
+      "country_id": 1,
       "customer_type": null,
       "status": true,
       "credit_limit": 100000,
@@ -104,7 +108,7 @@ GET …/customers/120?company_id=22
 }
 ```
 
-O detalhe (`GET /customers/{id}`) inclui ainda `address`, `birth_date`, `sex`, `image`.
+O detalhe (`GET /customers/{id}`) inclui ainda `birth_date`, `sex`, `image` (além de `address` e `country_id`, também presentes na lista).
 
 ---
 

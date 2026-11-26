@@ -56,9 +56,11 @@ Accept: application/json
 | `status` | Ex.: `active` |
 | `category_id` | Categoria |
 | `product_type_id` | Tipo exacto |
-| `per_page` | Paginação |
-| `sort` / `direction` | Ordenação (`id`, `nome`, `created_at`, …) |
-| `date_from` / `date_to` | Intervalo em `created_at` (se suportado pelo query service) |
+| `per_page` | Paginação (default `25`, max `100`) |
+| `sort` / `direction` / `order` | Ordenação (`id`, `nome`, `created_at`, …) |
+| `date_from` / `date_to` (`from` / `to`) | Intervalo em `created_at` |
+
+Header recomendado: `X-Request-Id: <uuid>`.
 
 Exemplos:
 
@@ -87,6 +89,7 @@ GET …/products/55?company_id=22
       "id": 55,
       "company_id": 22,
       "name": "Paracetamol 500mg",
+      "kind": "product",
       "code": "PAR-500",
       "barcode": "5601234567890",
       "status": "active",
@@ -109,6 +112,8 @@ GET …/products/55?company_id=22
   }
 }
 ```
+
+> **Sincronização imediata no HOTEL:** ao alterar preço ou IVA via `PATCH/PUT /products/{id}`, o HOTEL actualiza imediatamente todos os registos `ProductCatalogMapping` ligados (`centralSalePrice`, `centralTaxPercent`, `centralName`, `centralPriceVerifiedAt`, `lastSyncedAt`).
 
 ---
 
