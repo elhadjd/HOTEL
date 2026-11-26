@@ -3,6 +3,19 @@ import { z } from "zod";
 import { prisma } from "@/server/db";
 import { jsonError, requireTenant } from "@/server/api-auth";
 import { completeCheckOut, prepareCheckOut } from "@/modules/stays/check-out-service";
+import {
+  AggregateConnectionError,
+  mapAggregateError,
+} from "@/modules/sigesc-integration/connection-context";
+import { AggregateApiError } from "@/modules/sigesc-integration/types";
+
+function handleCheckOutError(err: unknown) {
+  if (err instanceof AggregateApiError || err instanceof AggregateConnectionError) {
+    const mapped = mapAggregateError(err);
+    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
+  }
+  return jsonError(err);
+}
 
 export async function GET(
   _request: Request,
@@ -15,7 +28,7 @@ export async function GET(
     const prep = await prepareCheckOut(prisma, authz.ctx, stayId);
     return NextResponse.json(prep);
   } catch (err) {
-    return jsonError(err);
+    return handleCheckOutError(err);
   }
 }
 
@@ -55,6 +68,6 @@ export async function POST(
     const result = await completeCheckOut(prisma, authz.ctx, stayId, parsed.data);
     return NextResponse.json(result);
   } catch (err) {
-    return jsonError(err);
+    return handleCheckOutError(err);
   }
 }

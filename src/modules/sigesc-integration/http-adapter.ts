@@ -49,10 +49,18 @@ function assertSaleKeySegment(raw: string): string {
 }
 
 function extractAggregateErrorMessage(
-  body: (AggregateEnvelope<unknown> & { errors?: Record<string, string[] | string> }) | null,
+  body:
+    | (AggregateEnvelope<unknown> & {
+        message?: string;
+        errors?: Record<string, string[] | string>;
+      })
+    | null,
   status: number,
 ): string {
-  const base = body?.error?.message ?? `Aggregate API error (${status})`;
+  const base =
+    body?.error?.message ??
+    (typeof body?.message === "string" && body.message.trim() ? body.message.trim() : null) ??
+    `Erro na comunicação com o sistema central (HTTP ${status})`;
   if (body?.errors && typeof body.errors === "object") {
     const details = Object.entries(body.errors)
       .map(([field, msgs]) => `${field}: ${Array.isArray(msgs) ? msgs.join(", ") : String(msgs)}`)
@@ -61,6 +69,38 @@ function extractAggregateErrorMessage(
     if (details) return redactSecrets(`${base} (${details})`);
   }
   return redactSecrets(base);
+}
+
+function parseCentralJson<T>(
+  rawText: string,
+  res: Response,
+  meta: { requestId: string; method: string; path: string; latencyMs: number },
+): AggregateEnvelope<T> & { message?: string; errors?: Record<string, string[] | string> } {
+  const contentType = res.headers.get("content-type") ?? "";
+  try {
+    const parsed = JSON.parse(rawText) as AggregateEnvelope<T> & {
+      message?: string;
+      errors?: Record<string, string[] | string>;
+    };
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("Non-object JSON payload");
+    }
+    return parsed;
+  } catch {
+    const snippet = redactSecrets(rawText.replace(/\s+/g, " ").trim().slice(0, 200));
+    logger.error("sigesc.http.invalid_json", {
+      ...meta,
+      status: res.status,
+      contentType,
+      bodySnippet: snippet,
+    });
+    const statusHint = res.status >= 400 ? `HTTP ${res.status}` : `HTTP ${res.status}, ${contentType || "sem JSON"}`;
+    throw new AggregateApiError(
+      `O sistema central devolveu uma resposta inválida (${statusHint}). Verifique se o servidor central está actualizado e operacional.`,
+      res.status >= 400 && res.status < 600 ? res.status : 502,
+      res.status >= 400 && res.status < 600 ? res.status : 502,
+    );
+  }
 }
 
 /**
@@ -129,32 +169,19 @@ export class HttpAggregateAdapter implements AggregatePort {
         errorName: name || "unknown",
       });
       if (name === "TimeoutError" || name === "AbortError") {
-        throw new AggregateApiError("SIGESC Aggregate request timed out", 504, 504);
+        throw new AggregateApiError("Tempo limite excedido na comunicação com o sistema central", 504, 504);
       }
       throw new AggregateApiError(
-        `SIGESC Aggregate unavailable: ${safeErrorMessage(err, "network error")}`,
+        `Sistema central indisponível: ${safeErrorMessage(err, "erro de rede")}`,
         503,
         503,
       );
     }
 
-    let body: (AggregateEnvelope<T> & { errors?: Record<string, string[] | string> }) | null = null;
-    try {
-      body = (await res.json()) as AggregateEnvelope<T> & {
-        errors?: Record<string, string[] | string>;
-      };
-    } catch {
-      logger.error("sigesc.http.invalid_json", {
-        requestId,
-        method,
-        path,
-        status: res.status,
-        latencyMs: Date.now() - startedAt,
-      });
-      throw new AggregateApiError("Invalid JSON response from SIGESC Aggregate", 502, 502);
-    }
-
     const latencyMs = Date.now() - startedAt;
+    const rawText = await res.text();
+    const body = parseCentralJson<T>(rawText, res, { requestId, method, path, latencyMs });
+
     const okStatuses = options?.okStatuses ?? [200, 201];
     if (!okStatuses.includes(res.status) || !body?.success) {
       logger.warn("sigesc.http.error_response", {
@@ -171,7 +198,7 @@ export class HttpAggregateAdapter implements AggregatePort {
       );
     }
     if (body.data === undefined) {
-      throw new AggregateApiError("Invalid Aggregate envelope (missing data)", 502, 502);
+      throw new AggregateApiError("Resposta inválida do sistema central (dados em falta)", 502, 502);
     }
     logger.info("sigesc.http.completed", {
       requestId,
@@ -221,23 +248,18 @@ export class HttpAggregateAdapter implements AggregatePort {
         errorName: name || "unknown",
       });
       if (name === "TimeoutError" || name === "AbortError") {
-        throw new AggregateApiError("SIGESC Aggregate request timed out", 504, 504);
+        throw new AggregateApiError("Tempo limite excedido na comunicação com o sistema central", 504, 504);
       }
       throw new AggregateApiError(
-        `SIGESC Aggregate unavailable: ${safeErrorMessage(err, "network error")}`,
+        `Sistema central indisponível: ${safeErrorMessage(err, "erro de rede")}`,
         503,
         503,
       );
     }
-    let body: (AggregateEnvelope<T> & { errors?: Record<string, string[] | string> }) | null = null;
-    try {
-      body = (await res.json()) as AggregateEnvelope<T> & {
-        errors?: Record<string, string[] | string>;
-      };
-    } catch {
-      throw new AggregateApiError("Invalid JSON response from SIGESC Aggregate", 502, 502);
-    }
     const latencyMs = Date.now() - startedAt;
+    const rawText = await res.text();
+    const body = parseCentralJson<T>(rawText, res, { requestId, method: "GET", path, latencyMs });
+
     if (!res.ok || !body?.success) {
       logger.warn("sigesc.http.error_response", {
         requestId,
@@ -253,7 +275,7 @@ export class HttpAggregateAdapter implements AggregatePort {
       );
     }
     if (body.data === undefined) {
-      throw new AggregateApiError("Invalid Aggregate envelope (missing data)", 502, 502);
+      throw new AggregateApiError("Resposta inválida do sistema central (dados em falta)", 502, 502);
     }
     logger.info("sigesc.http.completed", {
       requestId,

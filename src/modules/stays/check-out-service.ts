@@ -11,6 +11,7 @@ import {
   createInvoiceDraft,
   findEligibleInvoiceForStay,
   isEditableCentralState,
+  refreshInvoiceFromCentral,
   submitInvoice,
 } from "@/modules/sigesc-integration/invoices/invoice-service";
 
@@ -137,9 +138,22 @@ export async function completeCheckOut(
   if (input?.requestProforma) {
     const existingDoc = prep.eligibleInvoice;
     if (lines.length === 0) {
-      if (existingDoc && existingDoc.status === "CREATED" && existingDoc.saleKey) {
-        invoiceId = existingDoc.id;
-        financialExternalRef = existingDoc.saleKey;
+      const confirmedDoc =
+        existingDoc && existingDoc.status === "CREATED" && existingDoc.saleKey
+          ? existingDoc
+          : await prisma.invoiceIntegration.findFirst({
+              where: {
+                institutionId: ctx.institutionId,
+                OR: [{ stayId }, { reservationId: stay.reservationId, guestId: stay.guestId }],
+                status: "CREATED",
+                saleKey: { not: null },
+              },
+              orderBy: { createdAt: "desc" },
+            });
+
+      if (confirmedDoc && confirmedDoc.saleKey) {
+        invoiceId = confirmedDoc.id;
+        financialExternalRef = confirmedDoc.saleKey;
         handoff = "CENTRAL_CONFIRMED";
         financialConfirmedAt = new Date();
       } else {
@@ -158,12 +172,21 @@ export async function completeCheckOut(
     } else {
       handoff = "REQUESTED";
       try {
+        let canAppendToExisting = false;
         if (
           existingDoc &&
           existingDoc.status === "CREATED" &&
           existingDoc.saleKey &&
           isEditableCentralState(existingDoc.centralState)
         ) {
+          // Verify live state in central before appending: if the invoice was already
+          // published/paid in the central server, create a fresh Proforma for extra consumption
+          // instead of failing with a read-only mutation error.
+          const refreshed = await refreshInvoiceFromCentral(prisma, ctx, existingDoc.id);
+          canAppendToExisting = isEditableCentralState(refreshed.centralState);
+        }
+
+        if (existingDoc && canAppendToExisting) {
           const appended = await addItemsToInvoice(prisma, ctx, existingDoc.id, lines, {
             idempotencyKey: `checkout-${stayId}-${existingDoc.id}`,
           });
