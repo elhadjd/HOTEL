@@ -206,6 +206,13 @@ export type AggregateProduct = {
   category_name?: string | null;
   product_type?: { id?: number; name?: string } | string | null;
   stock_quantity?: number | null;
+  average_price?: number | null;
+  min_quantity?: number | null;
+  manufacturer?: string | null;
+  allow_backorder?: boolean | null;
+  image?: string | null;
+  tax_exception_code?: string | null;
+  tax_exception_reason?: string | null;
   created_at?: string;
   updated_at?: string;
   kind?: string | null;
@@ -244,6 +251,7 @@ export type AggregateProductWriteInput = {
   purchase_price?: number | null;
   sale_price_ex_tax?: number | null;
   purchase_price_ex_tax?: number | null;
+  average_price?: number | null;
   tax_percent?: number | null;
   tax_rate_id?: number | null;
   status?: string | boolean;

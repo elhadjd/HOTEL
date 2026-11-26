@@ -29,7 +29,7 @@ export default async function CentralProductsPage({
   let loadError: string | null = null;
   try {
     const [list, maps] = await Promise.all([
-      searchCentralProducts(prisma, ctx, { kind: "service", per_page: 25 }),
+      searchCentralProducts(prisma, ctx, { per_page: 25 }),
       listCatalogMappings(prisma, ctx),
     ]);
     products = list.data ?? [];
@@ -43,10 +43,11 @@ export default async function CentralProductsPage({
     <AppShell title={t("nav.centralProducts")}>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <p className="font-ui max-w-2xl text-sm text-stone-500">
-          Preço oficial SIGESC Central (frescor {CENTRAL_PRICE_FRESHNESS_MS / 60000} min). Stock não
-          passa por estes endpoints.
+          Catálogo oficial do Sistema Central (preços verificados a cada{" "}
+          {CENTRAL_PRICE_FRESHNESS_MS / 60000} min). Importe produtos em lote ou crie novos itens
+          diretamente no servidor central.
         </p>
-        <Badge tone="accent">SIGESC Central</Badge>
+        <Badge tone="accent">Catálogo Central</Badge>
       </div>
       {loadError ? (
         <div className="surface p-5">

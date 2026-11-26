@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 export type InvoiceRow = {
   id: string;
   externalId: string;
+  orderReference: string | null;
   requestedState: string;
   status: string;
   saleKey: string | null;
@@ -69,7 +70,7 @@ function mapGuestOptions(
     label: `${g.firstName} ${g.lastName}`,
     keywords: [g.email ?? "", g.phone ?? "", g.customerMapping?.externalCustomerId ?? ""],
     description:
-      g.customerMapping?.syncStatus === "LINKED" ? "Cliente SIGESC ligado" : "Sem ligação",
+      g.customerMapping?.syncStatus === "LINKED" ? "Cliente central ligado" : "Sem ligação",
   }));
 }
 
@@ -100,10 +101,10 @@ export function InvoicesClient({
   total: initialTotal,
   take: initialTake = PAGE_SIZE,
   skip: initialSkip = 0,
+  defaultHotelId = "",
   guests,
   reservations,
   stays,
-  hotels,
   mappings,
   prefill,
 }: {
@@ -111,10 +112,10 @@ export function InvoicesClient({
   total: number;
   take?: number;
   skip?: number;
+  defaultHotelId?: string;
   guests: SearchableOption[];
   reservations: SearchableOption[];
   stays: SearchableOption[];
-  hotels: SearchableOption[];
   mappings: Array<SearchableOption & { unitPriceHint?: number | null }>;
   prefill?: { stayId?: string; guestId?: string; hotelId?: string };
 }) {
@@ -141,7 +142,7 @@ export function InvoicesClient({
   const [guestId, setGuestId] = useState(prefill?.guestId ?? "");
   const [reservationId, setReservationId] = useState("");
   const [stayId, setStayId] = useState(prefill?.stayId ?? "");
-  const [hotelId, setHotelId] = useState(prefill?.hotelId ?? "");
+  const hotelId = prefill?.hotelId || defaultHotelId;
   const [state, setState] = useState("Cotação");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([]);
@@ -332,7 +333,7 @@ export function InvoicesClient({
         const subData = await subRes.json().catch(() => ({}));
         if (!subRes.ok) {
           setError(
-            `Rascunho ${data.invoice.externalId} criado localmente, mas o envio ao SIGESC falhou: ${subData.error ?? "erro remoto"}`,
+            `Rascunho criado localmente, mas o envio ao sistema central falhou: ${subData.error ?? "erro remoto"}`,
           );
           setCreateOpen(false);
           setLines([]);
@@ -343,15 +344,16 @@ export function InvoicesClient({
         if (subData.reconciliationRequired || subData.invoice?.status === "RECONCILIATION_REQUIRED") {
           setError(
             subData.warning ??
-              `Rascunho ${data.invoice.externalId} aguarda reconciliação com o SIGESC.`,
+              "Rascunho aguarda reconciliação com o sistema central.",
           );
         } else {
+          const officialNo = subData.invoice?.orderReference || subData.invoice?.saleKey || "";
           setMessage(
-            `Documento ${data.invoice.externalId} criado e confirmado no SIGESC (${subData.invoice?.saleKey ?? ""}).`,
+            `Documento ${officialNo} criado e numerado pelo sistema central com sucesso.`,
           );
         }
       } else {
-        setMessage(`Rascunho ${data.invoice.externalId} criado localmente. Submeta para o SIGESC.`);
+        setMessage("Rascunho criado localmente. Envie ao sistema central para gerar o número oficial.");
       }
       setCreateOpen(false);
       setLines([]);
@@ -388,11 +390,10 @@ export function InvoicesClient({
     <div className="space-y-6">
       <div className="surface border-l-4 border-l-teal-600 p-4">
         <p className="font-ui text-sm text-ink-900">
-          A Aggregate API só cria <strong>Cotação</strong> ou <strong>Proforma</strong>. Publicar,
-          cobrar e stock continuam no SIGESC. O preço de linha é sempre o{" "}
-          <strong>sale_price</strong> central verificado; descontos de linha são suportados pelo
-          contrato. Documentos existentes são append-only — não há remoção/edição de quantidades
-          via Aggregate.
+          Crie <strong>Cotações</strong> ou <strong>Proformas</strong> com numeração oficial gerada
+          pelo <strong>sistema central</strong>, e publique ou liquide (pagamento total/parcial)
+          diretamente no detalhe do documento. Os preços de linha são sempre validados no catálogo
+          central.
         </p>
       </div>
 
@@ -402,31 +403,31 @@ export function InvoicesClient({
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="surface p-4">
           <p className="font-ui text-[11px] uppercase tracking-[0.16em] text-stone-400">Documentos</p>
-          <p className="mt-2 text-2xl font-semibold text-ink-900">{total}</p>
+          <p className="mt-2 text-2xl font-semibold tabular-nums text-ink-900">{total}</p>
           <p className="font-ui text-xs text-stone-500">
             {listLoading ? "A actualizar…" : `a mostrar ${pageFrom}–${pageTo}`}
           </p>
         </div>
         <div className="surface p-4">
-          <p className="font-ui text-[11px] uppercase tracking-[0.16em] text-stone-400">No SIGESC</p>
-          <p className="mt-2 text-2xl font-semibold text-ink-900">{summaryCards.created}</p>
+          <p className="font-ui text-[11px] uppercase tracking-[0.16em] text-stone-400">No Sistema Central</p>
+          <p className="mt-2 text-2xl font-semibold tabular-nums text-ink-900">{summaryCards.created}</p>
           <p className="font-ui text-xs text-stone-500">
             {summaryCards.editable} editáveis · nesta página
           </p>
         </div>
         <div className="surface p-4">
-          <p className="font-ui text-[11px] uppercase tracking-[0.16em] text-stone-400">Rascunhos</p>
-          <p className="mt-2 text-2xl font-semibold text-ink-900">{summaryCards.drafts}</p>
+          <p className="font-ui text-[11px] uppercase tracking-[0.16em] text-stone-400">Rascunhos locais</p>
+          <p className="mt-2 text-2xl font-semibold tabular-nums text-ink-900">{summaryCards.drafts}</p>
           <p className="font-ui text-xs text-stone-500">nesta página</p>
         </div>
         <div className="surface p-4">
           <p className="font-ui text-[11px] uppercase tracking-[0.16em] text-stone-400">
             Totais centrais
           </p>
-          <p className="mt-2 text-2xl font-semibold text-ink-900">
+          <p className="mt-2 text-2xl font-semibold tabular-nums text-ink-900">
             {money(summaryCards.centralTotal)}
           </p>
-          <p className="font-ui text-xs text-stone-500">Só valores SIGESC · nesta página</p>
+          <p className="font-ui text-xs text-stone-500">Valores oficiais · nesta página</p>
         </div>
       </div>
 
@@ -435,8 +436,7 @@ export function InvoicesClient({
           <div>
             <h3 className="text-lg font-semibold text-ink-900">Documentos financeiros</h3>
             <p className="font-ui text-xs text-stone-500">
-              Pesquisa e filtros no servidor — resultados em todas as páginas autorizadas do
-              tenant.
+              Pesquisa por número oficial da fatura, hóspede ou período.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -453,17 +453,17 @@ export function InvoicesClient({
                   });
                   const data = await res.json().catch(() => ({}));
                   if (!res.ok) {
-                    setError(data.error ?? "Falha ao sincronizar estados no SIGESC");
+                    setError(data.error ?? "Falha ao sincronizar estados no sistema central");
                     return;
                   }
                   setMessage(
-                    `Estados sincronizados no SIGESC: ${data.checked} verificados, ${data.updated} actualizados${data.failed ? `, ${data.failed} com falha` : ""}.`,
+                    `Estados sincronizados: ${data.checked} verificados, ${data.updated} actualizados${data.failed ? `, ${data.failed} com falha` : ""}.`,
                   );
                   router.refresh();
                 });
               }}
             >
-              Sincronizar estados SIGESC
+              Sincronizar estados
             </Button>
             <Button type="button" onClick={() => setCreateOpen(true)} className="gap-2">
               <Plus className="h-4 w-4" />
@@ -478,7 +478,7 @@ export function InvoicesClient({
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Nº, cliente, hóspede, sale_key…"
+              placeholder="Nº fatura (ex. FT/PP…), hóspede, referência…"
               className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm"
             />
           </label>
@@ -495,23 +495,23 @@ export function InvoicesClient({
             </select>
           </label>
           <label className="block">
-            <span className="text-xs text-stone-500">Estado local</span>
+            <span className="text-xs text-stone-500">Estado de envio</span>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm"
             >
               <option value="">Todos</option>
-              <option value="DRAFT">DRAFT</option>
-              <option value="PENDING_SUBMISSION">PENDING_SUBMISSION</option>
-              <option value="SUBMITTING">SUBMITTING</option>
-              <option value="CREATED">CREATED</option>
-              <option value="RECONCILIATION_REQUIRED">RECONCILIATION</option>
-              <option value="FAILED_VALIDATION">FAILED_VALIDATION</option>
-              <option value="FAILED_FINAL">FAILED_FINAL</option>
+              <option value="DRAFT">Rascunho</option>
+              <option value="PENDING_SUBMISSION">Pendente</option>
+              <option value="SUBMITTING">A enviar</option>
+              <option value="CREATED">Sincronizado</option>
+              <option value="RECONCILIATION_REQUIRED">Reconciliação</option>
+              <option value="FAILED_VALIDATION">Erro de validação</option>
+              <option value="FAILED_FINAL">Falha definitiva</option>
             </select>
           </label>
-          <label className="block">
+          <div className="block">
             <span className="text-xs text-stone-500">Hóspede</span>
             <SearchableSelect
               options={guests}
@@ -525,7 +525,7 @@ export function InvoicesClient({
               }}
               className="mt-1"
             />
-          </label>
+          </div>
           <div className="flex items-end gap-2">
             <label className="block flex-1">
               <span className="text-xs text-stone-500">De</span>
@@ -566,69 +566,86 @@ export function InvoicesClient({
               <table className="data-table min-w-[960px]">
                 <thead>
                   <tr>
-                    <th>Documento</th>
+                    <th>Nº da Fatura</th>
                     <th>Tipo / estado</th>
-                    <th>Contexto</th>
+                    <th>Cliente / Hóspede</th>
                     <th>Itens</th>
-                    <th>Totais SIGESC</th>
+                    <th>Totais</th>
                     <th>Actualizado</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((inv) => (
-                    <tr key={inv.id}>
-                      <td>
-                        <div className="font-medium text-ink-900">{inv.externalId}</div>
-                        <div className="text-xs text-stone-500">{inv.saleKey ?? "sem sale_key"}</div>
-                      </td>
-                      <td>
-                        <div className="flex flex-wrap gap-1">
-                          <StatusPill value={inv.requestedState} />
-                          <StatusPill value={inv.status} />
-                          {inv.centralState ? <StatusPill value={inv.centralState} /> : null}
-                        </div>
-                        {inv.lastError ? (
-                          <p className="mt-1 text-xs text-danger">{inv.lastError}</p>
-                        ) : null}
-                      </td>
-                      <td>
-                        <div className="text-stone-700">{inv.guestLabel ?? "—"}</div>
-                        <div className="text-xs text-stone-500">{inv.hotelLabel ?? "—"}</div>
-                      </td>
-                      <td>
-                        {inv.summary.itemCount} · qty {inv.summary.totalQuantity}
-                        {inv.summary.discount > 0 ? (
-                          <div className="text-xs text-stone-500">
-                            desc. {money(inv.summary.discount, inv.currency)}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td>
-                        {inv.centralTotal != null ? (
-                          <>
-                            <div className="font-medium">{money(inv.centralTotal, inv.currency)}</div>
-                            <div className="text-xs text-stone-500">
-                              Sub {money(inv.centralSubtotal, inv.currency)}
+                  {rows.map((inv) => {
+                    const officialNumber =
+                      inv.orderReference &&
+                      !inv.orderReference.startsWith("HOT-INV-") &&
+                      !inv.orderReference.startsWith("API-HOT-INV-")
+                        ? inv.orderReference
+                        : null;
+                    return (
+                      <tr key={inv.id}>
+                        <td>
+                          {officialNumber ? (
+                            <div className="font-mono text-sm font-semibold text-ink-900">
+                              {officialNumber}
                             </div>
-                          </>
-                        ) : (
-                          <span className="text-stone-400">Pendente</span>
-                        )}
-                      </td>
-                      <td className="text-xs text-stone-500">
-                        {new Date(inv.updatedAt).toLocaleString("pt-PT")}
-                      </td>
-                      <td>
-                        <Link
-                          href={`/integrations/invoices/${inv.id}`}
-                          className="text-teal-700 hover:underline"
-                        >
-                          Abrir
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
+                          ) : (
+                            <div className="font-medium text-stone-600">
+                              Rascunho local
+                            </div>
+                          )}
+                          <div className="text-xs text-stone-500">
+                            {inv.saleKey ? `Ref. central ${inv.saleKey}` : "A aguardar envio ao sistema central"}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="flex flex-wrap gap-1">
+                            <StatusPill value={inv.requestedState} />
+                            <StatusPill value={inv.status} />
+                            {inv.centralState ? <StatusPill value={inv.centralState} /> : null}
+                          </div>
+                          {inv.lastError ? (
+                            <p className="mt-1 text-xs text-danger">{inv.lastError}</p>
+                          ) : null}
+                        </td>
+                        <td>
+                          <div className="text-stone-700">{inv.guestLabel ?? "—"}</div>
+                        </td>
+                        <td className="tabular-nums">
+                          {inv.summary.itemCount} · qty {inv.summary.totalQuantity}
+                          {inv.summary.discount > 0 ? (
+                            <div className="text-xs text-stone-500">
+                              desc. {money(inv.summary.discount, inv.currency)}
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="tabular-nums">
+                          {inv.centralTotal != null ? (
+                            <>
+                              <div className="font-medium">{money(inv.centralTotal, inv.currency)}</div>
+                              <div className="text-xs text-stone-500">
+                                Sub {money(inv.centralSubtotal, inv.currency)}
+                              </div>
+                            </>
+                          ) : (
+                            <span className="text-stone-400">Pendente</span>
+                          )}
+                        </td>
+                        <td className="text-xs tabular-nums text-stone-500">
+                          {new Date(inv.updatedAt).toLocaleString("pt-PT")}
+                        </td>
+                        <td>
+                          <Link
+                            href={`/integrations/invoices/${inv.id}`}
+                            className="font-medium text-teal-700 hover:underline"
+                          >
+                            Abrir
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -698,8 +715,8 @@ export function InvoicesClient({
                   <h4 className="font-ui text-xs font-semibold uppercase tracking-[0.16em] text-stone-400">
                     A — Cliente e contexto
                   </h4>
-                  <label className="block text-sm">
-                    <span className="text-stone-500">Hóspede (cliente SIGESC ligado)</span>
+                  <div className="block text-sm">
+                    <span className="text-stone-500">Hóspede (cliente central ligado)</span>
                     <SearchableSelect
                       className="mt-1"
                       options={guests}
@@ -712,18 +729,8 @@ export function InvoicesClient({
                         refineSearch: "Mais resultados existem — refine a pesquisa.",
                       }}
                     />
-                  </label>
-                  <label className="block text-sm">
-                    <span className="text-stone-500">Hotel</span>
-                    <SearchableSelect
-                      className="mt-1"
-                      options={hotels}
-                      value={hotelId}
-                      onChange={setHotelId}
-                      labels={{ placeholder: "Opcional", searchPlaceholder: "Hotel…" }}
-                    />
-                  </label>
-                  <label className="block text-sm">
+                  </div>
+                  <div className="block text-sm">
                     <span className="text-stone-500">Estadia activa</span>
                     <SearchableSelect
                       className="mt-1"
@@ -732,8 +739,8 @@ export function InvoicesClient({
                       onChange={setStayId}
                       labels={{ placeholder: "Opcional", searchPlaceholder: "Estadia…" }}
                     />
-                  </label>
-                  <label className="block text-sm">
+                  </div>
+                  <div className="block text-sm">
                     <span className="text-stone-500">Reserva</span>
                     <SearchableSelect
                       className="mt-1"
@@ -742,7 +749,7 @@ export function InvoicesClient({
                       onChange={setReservationId}
                       labels={{ placeholder: "Opcional", searchPlaceholder: "Código…" }}
                     />
-                  </label>
+                  </div>
                   <label className="block text-sm">
                     <span className="text-stone-500">Tipo de documento</span>
                     <select
@@ -884,7 +891,7 @@ export function InvoicesClient({
                     checked={submitNow}
                     onChange={(e) => setSubmitNow(e.target.checked)}
                   />
-                  Enviar imediatamente para o SIGESC após criar
+                  Enviar imediatamente para o sistema central após criar
                 </label>
                 <Button
                   type="submit"
@@ -894,7 +901,7 @@ export function InvoicesClient({
                   {pending
                     ? "A processar…"
                     : submitNow
-                      ? "Criar e enviar ao SIGESC"
+                      ? "Criar e emitir no sistema central"
                       : "Criar rascunho local"}
                 </Button>
               </div>

@@ -173,10 +173,12 @@ export function InvoiceDetailClient({
         setError(
           data.warning ??
             data.invoice?.lastError ??
-            "Envio não confirmado pelo SIGESC — reconciliação obrigatória antes de assumir criação.",
+            "Envio não confirmado pelo sistema central — reconciliação obrigatória antes de assumir criação.",
         );
       } else {
-        setMessage(`Confirmado no SIGESC: ${data.invoice?.status} / ${data.invoice?.centralState ?? "—"}`);
+        setMessage(
+          `Confirmado no sistema central: ${data.invoice?.orderReference ?? data.invoice?.status} · ${data.invoice?.centralState ?? "—"}`,
+        );
       }
       router.refresh();
     });
@@ -231,6 +233,13 @@ export function InvoiceDetailClient({
     });
   }
 
+  const officialNumber =
+    invoice.orderReference &&
+    !invoice.orderReference.startsWith("HOT-INV-") &&
+    !invoice.orderReference.startsWith("API-HOT-INV-")
+      ? invoice.orderReference
+      : null;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -238,12 +247,13 @@ export function InvoiceDetailClient({
           <Link href="/integrations/invoices" className="font-ui text-sm text-teal-700 hover:underline">
             ← Voltar à lista
           </Link>
-          <h1 className="mt-2 text-3xl font-semibold text-ink-900">
-            {invoice.orderReference || invoice.externalId}
+          <h1 className="font-mono mt-2 text-3xl font-semibold text-ink-900">
+            {officialNumber ?? "Rascunho local"}
           </h1>
           <p className="font-ui mt-1 text-sm text-stone-500">
-            {invoice.orderReference ? `${invoice.externalId} · ` : ""}
-            {invoice.saleKey ?? "Ainda sem sale_key central"}
+            {invoice.saleKey
+              ? `Ref. central ${invoice.saleKey}`
+              : "A aguardar envio ao sistema central para emissão do número oficial"}
           </p>
           <div className="mt-3 flex flex-wrap gap-1">
             <StatusPill value={invoice.requestedState} />
@@ -254,7 +264,7 @@ export function InvoiceDetailClient({
         <div className="flex flex-wrap gap-2">
           {submittable ? (
             <Button type="button" disabled={pending} onClick={() => act("submit")}>
-              Submeter ao SIGESC
+              Enviar ao sistema central
             </Button>
           ) : null}
           {invoice.status === "RECONCILIATION_REQUIRED" ? (
@@ -413,9 +423,9 @@ export function InvoiceDetailClient({
       {invoice.payments.length > 0 ? (
         <div className="surface overflow-hidden">
           <div className="border-b border-sand-200 px-5 py-4">
-            <h2 className="text-lg font-semibold text-ink-900">Pagamentos / Recibos SIGESC</h2>
+            <h2 className="text-lg font-semibold text-ink-900">Pagamentos e Recibos</h2>
             <p className="font-ui mt-1 text-xs text-stone-500">
-              Recibos oficiais registados no SIGESC Central para este documento.
+              Recibos oficiais emitidos pelo sistema central para este documento.
             </p>
           </div>
           <table className="data-table">
@@ -431,11 +441,11 @@ export function InvoiceDetailClient({
             <tbody>
               {invoice.payments.map((p, idx) => (
                 <tr key={`${p.id ?? p.number ?? idx}`}>
-                  <td className="font-medium">{p.number ?? `#${p.id ?? idx + 1}`}</td>
-                  <td>{p.date ?? "—"}</td>
+                  <td className="font-mono font-medium">{p.number ?? `#${p.id ?? idx + 1}`}</td>
+                  <td className="tabular-nums">{p.date ?? "—"}</td>
                   <td>{p.method?.name ?? "—"}</td>
                   <td>{p.notes ?? "—"}</td>
-                  <td className="font-medium">{money(p.amount, invoice.currency)}</td>
+                  <td className="font-medium tabular-nums">{money(p.amount, invoice.currency)}</td>
                 </tr>
               ))}
             </tbody>
@@ -447,9 +457,8 @@ export function InvoiceDetailClient({
         <form onSubmit={addItems} className="surface p-5">
           <h2 className="text-lg font-semibold text-ink-900">Adicionar produtos</h2>
           <p className="font-ui mt-1 text-sm text-stone-500">
-            Actualiza o mesmo documento central ({invoice.centralState}). Publicado/Pago bloqueiam
-            mutações no servidor após verificação do estado actual. Cada pedido leva uma chave de
-            idempotência verificada localmente e no SIGESC.
+            Actualiza o mesmo documento central ({invoice.centralState}). Documentos publicados ou
+            pagos ficam bloqueados a alterações. Cada pedido usa chave de idempotência verificada.
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-[1.5fr_0.5fr_0.5fr_auto]">
             <SearchableSelect
@@ -490,7 +499,7 @@ export function InvoiceDetailClient({
         <div className="surface-muted p-4">
           <p className="font-ui text-sm text-stone-600">
             {invoice.status !== "CREATED"
-              ? "Submeta o rascunho ao SIGESC antes de acrescentar produtos ao documento central."
+              ? "Envie o rascunho ao sistema central antes de acrescentar produtos."
               : `Documento central em estado "${invoice.centralState ?? "desconhecido"}" — adição de linhas bloqueada.`}
           </p>
         </div>

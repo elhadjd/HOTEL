@@ -474,6 +474,15 @@ export async function createInvoiceDraft(
     hotelId = hotelId ?? reservation.hotelId;
   }
 
+  if (!hotelId) {
+    const primaryHotel = await prisma.hotel.findFirst({
+      where: { institutionId: ctx.institutionId, active: true },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+    hotelId = primaryHotel?.id ?? null;
+  }
+
   const externalId = `HOT-INV-${randomUUID()}`;
 
   const invoice = await prisma.invoiceIntegration.create({
@@ -682,6 +691,22 @@ export function extractInvoiceLines(linesJson: unknown): NormalizedInvoiceLine[]
   return [...base, ...appended];
 }
 
+function resolveCentralDocumentNumber(sale: {
+  document_number?: string | null;
+  order_number?: string | null;
+  order_reference?: string | null;
+}): string | null {
+  const official = sale.document_number?.trim() || sale.order_number?.trim() || "";
+  if (official && !official.startsWith("API-HOT-INV-") && !official.startsWith("HOT-INV-")) {
+    return official;
+  }
+  const ref = sale.order_reference?.trim() || "";
+  if (ref && !ref.startsWith("HOT-INV-")) {
+    return ref;
+  }
+  return official || null;
+}
+
 function persistSaleFields(sale: {
   id: number;
   sale_key: string;
@@ -699,7 +724,7 @@ function persistSaleFields(sale: {
     status: "CREATED" as const,
     centralSaleId: String(sale.id),
     saleKey: sale.sale_key,
-    orderReference: sale.document_number ?? sale.order_number ?? sale.order_reference ?? null,
+    orderReference: resolveCentralDocumentNumber(sale),
     centralState: sale.state,
     centralTotal: sale.total ?? null,
     centralSubtotal: sale.subtotal ?? null,

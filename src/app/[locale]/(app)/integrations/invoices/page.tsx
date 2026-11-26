@@ -60,19 +60,21 @@ export default async function CentralInvoicesPage({
     <AppShell title={t("nav.centralInvoices")}>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <p className="font-ui max-w-2xl text-sm text-stone-500">
-          Workspace de cotações e proformas com pesquisa, filtros e edição contínua enquanto o
-          documento central permanecer em Cotação/Proforma.
+          Gestão de cotações, proformas e faturas fiscais emitidas e liquidadas diretamente com o
+          sistema central.
         </p>
-        <Badge tone="accent">Phase 7</Badge>
+        <Badge tone="accent">Faturação Central</Badge>
       </div>
       <InvoicesClient
         total={invoicePage.total}
         take={invoicePage.take}
         skip={invoicePage.skip}
+        defaultHotelId={hotels[0]?.id ?? ""}
         prefill={prefill}
         invoices={invoicePage.rows.map((inv) => ({
           id: inv.id,
           externalId: inv.externalId,
+          orderReference: inv.orderReference,
           requestedState: inv.requestedState,
           status: inv.status,
           saleKey: inv.saleKey,
@@ -97,7 +99,7 @@ export default async function CentralInvoicesPage({
           label: `${g.firstName} ${g.lastName}`,
           keywords: [g.email ?? "", g.phone ?? "", g.customerMapping?.externalCustomerId ?? ""],
           description:
-            g.customerMapping?.syncStatus === "LINKED" ? "Cliente SIGESC ligado" : "Sem ligação",
+            g.customerMapping?.syncStatus === "LINKED" ? "Cliente central ligado" : "Sem ligação",
         }))}
         reservations={reservations.map((r) => ({
           value: r.id,
@@ -110,11 +112,6 @@ export default async function CentralInvoicesPage({
           label: `${s.reservation.code} · ${s.guest.firstName} ${s.guest.lastName}`,
           keywords: [s.room.code, s.id],
           description: `Quarto ${s.room.code}`,
-        }))}
-        hotels={hotels.map((h) => ({
-          value: h.id,
-          label: h.name,
-          keywords: [h.code ?? ""],
         }))}
         mappings={mappings
           .filter((m) => m.active)

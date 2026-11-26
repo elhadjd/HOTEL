@@ -2,6 +2,20 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
+import {
+  Check,
+  CheckSquare,
+  Download,
+  Edit3,
+  Layers,
+  Package,
+  Plus,
+  RefreshCw,
+  Search,
+  Sparkles,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 
@@ -9,13 +23,28 @@ type Product = {
   id: number;
   name: string;
   code?: string | null;
+  barcode?: string | null;
+  reference?: string | null;
   kind?: string | null;
   description?: string | null;
   unit_of_measure?: string | null;
+  pricing_mode?: string | null;
   sale_price?: number | null;
+  sale_price_ex_tax?: number | null;
   purchase_price?: number | null;
+  purchase_price_ex_tax?: number | null;
+  average_price?: number | null;
   tax_percent?: number | null;
+  tax_exception_code?: string | null;
+  tax_exception_reason?: string | null;
+  category_id?: number | null;
+  category_name?: string | null;
+  manufacturer?: string | null;
+  min_quantity?: number | null;
+  inventory?: boolean | null;
+  allow_backorder?: boolean | null;
   is_sellable?: boolean | null;
+  image?: string | null;
   status?: string | boolean | null;
 };
 
@@ -40,6 +69,154 @@ type PaginationMeta = {
   last_page?: number;
 };
 
+type ProductFormState = {
+  name: string;
+  kind: "service" | "product";
+  code: string;
+  barcode: string;
+  reference: string;
+  category_id: string;
+  manufacturer: string;
+  description: string;
+  status: "active" | "inactive";
+  sale_price: string;
+  sale_price_ex_tax: string;
+  purchase_price: string;
+  purchase_price_ex_tax: string;
+  average_price: string;
+  tax_percent: string;
+  tax_exception_code: string;
+  tax_exception_reason: string;
+  unit_of_measure: string;
+  pricing_mode: "unit" | "weight";
+  min_quantity: string;
+  is_sellable: boolean;
+  inventory: boolean;
+  allow_backorder: boolean;
+  image: string;
+  importToHotel: boolean;
+};
+
+const EMPTY_FORM: ProductFormState = {
+  name: "",
+  kind: "service",
+  code: "",
+  barcode: "",
+  reference: "",
+  category_id: "",
+  manufacturer: "",
+  description: "",
+  status: "active",
+  sale_price: "",
+  sale_price_ex_tax: "",
+  purchase_price: "",
+  purchase_price_ex_tax: "",
+  average_price: "",
+  tax_percent: "14",
+  tax_exception_code: "",
+  tax_exception_reason: "",
+  unit_of_measure: "un",
+  pricing_mode: "unit",
+  min_quantity: "",
+  is_sellable: true,
+  inventory: false,
+  allow_backorder: false,
+  image: "",
+  importToHotel: true,
+};
+
+function parseOptionalNumber(raw: string): number | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function money(value: number | null | undefined) {
+  if (value == null || Number.isNaN(Number(value))) return "—";
+  return `${Number(value).toLocaleString("pt-PT", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} AOA`;
+}
+
+function productToForm(p: Product): ProductFormState {
+  const isProd = (p.kind ?? "").toLowerCase() === "product";
+  return {
+    name: p.name ?? "",
+    kind: isProd ? "product" : "service",
+    code: p.code ?? "",
+    barcode: p.barcode ?? "",
+    reference: p.reference ?? "",
+    category_id: p.category_id != null ? String(p.category_id) : "",
+    manufacturer: p.manufacturer ?? "",
+    description: p.description ?? "",
+    status: p.status === false || p.status === "inactive" ? "inactive" : "active",
+    sale_price: p.sale_price != null ? String(p.sale_price) : "",
+    sale_price_ex_tax: p.sale_price_ex_tax != null ? String(p.sale_price_ex_tax) : "",
+    purchase_price: p.purchase_price != null ? String(p.purchase_price) : "",
+    purchase_price_ex_tax: p.purchase_price_ex_tax != null ? String(p.purchase_price_ex_tax) : "",
+    average_price: p.average_price != null ? String(p.average_price) : "",
+    tax_percent: p.tax_percent != null ? String(p.tax_percent) : "",
+    tax_exception_code: p.tax_exception_code ?? "",
+    tax_exception_reason: p.tax_exception_reason ?? "",
+    unit_of_measure: p.unit_of_measure ?? (isProd ? "un" : "noite"),
+    pricing_mode: p.pricing_mode === "weight" ? "weight" : "unit",
+    min_quantity: p.min_quantity != null ? String(p.min_quantity) : "",
+    is_sellable: p.is_sellable !== false,
+    inventory: p.inventory === true,
+    allow_backorder: p.allow_backorder === true,
+    image: p.image ?? "",
+    importToHotel: true,
+  };
+}
+
+function buildProductPayload(form: ProductFormState, includeImportFlag: boolean) {
+  const payload: Record<string, unknown> = {
+    name: form.name.trim(),
+    kind: form.kind,
+    status: form.status,
+    is_sellable: form.is_sellable,
+    inventory: form.kind === "product" ? form.inventory : false,
+    allow_backorder: form.kind === "product" ? form.allow_backorder : false,
+    pricing_mode: form.pricing_mode,
+  };
+
+  if (form.code.trim()) payload.code = form.code.trim();
+  if (form.barcode.trim()) payload.barcode = form.barcode.trim();
+  if (form.reference.trim()) payload.reference = form.reference.trim();
+  if (form.manufacturer.trim()) payload.manufacturer = form.manufacturer.trim();
+  if (form.description.trim()) payload.description = form.description.trim();
+  if (form.unit_of_measure.trim()) payload.unit_of_measure = form.unit_of_measure.trim();
+  if (form.image.trim()) payload.image = form.image.trim();
+  if (form.tax_exception_code.trim()) payload.tax_exception_code = form.tax_exception_code.trim();
+  if (form.tax_exception_reason.trim()) payload.tax_exception_reason = form.tax_exception_reason.trim();
+
+  const catId = parseOptionalNumber(form.category_id);
+  if (catId != null && catId > 0) payload.category_id = Math.trunc(catId);
+
+  const salePrice = parseOptionalNumber(form.sale_price);
+  if (salePrice != null) payload.sale_price = salePrice;
+  const saleExTax = parseOptionalNumber(form.sale_price_ex_tax);
+  if (saleExTax != null) payload.sale_price_ex_tax = saleExTax;
+  const purchasePrice = parseOptionalNumber(form.purchase_price);
+  if (purchasePrice != null) payload.purchase_price = purchasePrice;
+  const purchaseExTax = parseOptionalNumber(form.purchase_price_ex_tax);
+  if (purchaseExTax != null) payload.purchase_price_ex_tax = purchaseExTax;
+  const avgPrice = parseOptionalNumber(form.average_price);
+  if (avgPrice != null) payload.average_price = avgPrice;
+  const taxPct = parseOptionalNumber(form.tax_percent);
+  if (taxPct != null) payload.tax_percent = taxPct;
+  const minQty = parseOptionalNumber(form.min_quantity);
+  if (minQty != null) payload.min_quantity = minQty;
+
+  if (includeImportFlag) {
+    payload.importToHotel = form.importToHotel;
+  }
+
+  return payload;
+}
+
 export function ProductsClient({
   initialProducts,
   initialPagination,
@@ -50,65 +227,106 @@ export function ProductsClient({
   mappings: Mapping[];
 }) {
   const router = useRouter();
-  const [kind, setKind] = useState("service");
+  const [kind, setKind] = useState("all");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(initialPagination?.current_page ?? 1);
   const [meta, setMeta] = useState<PaginationMeta | undefined>(initialPagination);
   const [products, setProducts] = useState(initialProducts);
   const [mappings, setMappings] = useState(initialMappings);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  // Manual code mapping form (e.g. accommodation, minibar)
+  const [showCustomMapping, setShowCustomMapping] = useState(false);
   const [localCode, setLocalCode] = useState("accommodation");
   const [localLabel, setLocalLabel] = useState("Alojamento");
   const [mappingKind, setMappingKind] = useState<"SERVICE" | "PRODUCT">("SERVICE");
   const [centralProductId, setCentralProductId] = useState("");
 
-  // Create form state
-  const [newName, setNewName] = useState("");
-  const [newPrice, setNewPrice] = useState("");
-  const [newTax, setNewTax] = useState("");
-  const [newKind, setNewKind] = useState<"service" | "product">("service");
+  // Full Create / Edit Drawer state
+  const [drawerMode, setDrawerMode] = useState<"closed" | "create" | "edit">("closed");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState<ProductFormState>(EMPTY_FORM);
 
-  // Edit / price-change form state
-  const [editing, setEditing] = useState<Product | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editPrice, setEditPrice] = useState("");
-  const [editPurchasePrice, setEditPurchasePrice] = useState("");
-  const [editTax, setEditTax] = useState("");
-  const [editKind, setEditKind] = useState<"service" | "product">("service");
-  const [editUnit, setEditUnit] = useState("");
-  const [editSellable, setEditSellable] = useState(true);
-  const [editDescription, setEditDescription] = useState("");
+  const importedCentralIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of mappings) {
+      if (m.active) set.add(m.centralProductId);
+    }
+    return set;
+  }, [mappings]);
 
   const productOptions = useMemo(
     () =>
       products.map((p) => ({
         value: String(p.id),
         label: p.name,
-        keywords: [String(p.id), p.code ?? "", p.kind ?? ""],
+        keywords: [String(p.id), p.code ?? "", p.barcode ?? "", p.kind ?? ""],
         description:
           p.sale_price != null
-            ? `#${p.id}${p.code ? ` · ${p.code}` : ""} · ${p.sale_price} AOA`
+            ? `#${p.id}${p.code ? ` · ${p.code}` : ""} · ${money(p.sale_price)}`
             : `#${p.id}${p.code ? ` · ${p.code}` : ""}`,
       })),
     [products],
   );
 
+  const pageIds = useMemo(() => products.map((p) => p.id), [products]);
+  const allPageSelected =
+    pageIds.length > 0 && pageIds.every((id) => selectedIds.includes(id));
+
+  function toggleSelect(id: number) {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+    );
+  }
+
+  function toggleSelectAllPage() {
+    if (allPageSelected) {
+      setSelectedIds((prev) => prev.filter((id) => !pageIds.includes(id)));
+    } else {
+      setSelectedIds((prev) => [...new Set([...prev, ...pageIds])]);
+    }
+  }
+
+  async function reloadMappings() {
+    const res = await fetch("/api/v1/integrations/sigesc/catalog-mappings?take=200");
+    if (!res.ok) return;
+    const data = await res.json().catch(() => ({}));
+    if (Array.isArray(data.mappings)) {
+      setMappings(
+        data.mappings.map((m: Record<string, unknown>) => ({
+          id: String(m.id),
+          localCode: String(m.localCode),
+          localLabel: String(m.localLabel),
+          centralProductId: String(m.centralProductId),
+          centralName: (m.centralName as string | null) ?? null,
+          centralSalePrice: m.centralSalePrice != null ? Number(m.centralSalePrice) : null,
+          centralTaxPercent: m.centralTaxPercent != null ? Number(m.centralTaxPercent) : null,
+          centralPriceVerifiedAt: (m.centralPriceVerifiedAt as string | null) ?? null,
+          legacyHistoricalPrice:
+            m.legacyHistoricalPrice != null ? Number(m.legacyHistoricalPrice) : null,
+          active: m.active !== false,
+          priceFresh: true,
+        })),
+      );
+    }
+  }
+
   function loadPage(nextPage: number, nextKind = kind, nextQuery = q) {
     setError(null);
     startTransition(async () => {
       const params = new URLSearchParams({
-        kind: nextKind,
         page: String(nextPage),
         per_page: "25",
       });
+      if (nextKind && nextKind !== "all") params.set("kind", nextKind);
       if (nextQuery.trim()) params.set("search", nextQuery.trim());
       const res = await fetch(`/api/v1/integrations/sigesc/products?${params}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error ?? "Search failed");
+        setError(data.error ?? "Falha ao pesquisar catálogo central");
         return;
       }
       setProducts(data.data ?? []);
@@ -122,78 +340,129 @@ export function ProductsClient({
     loadPage(1, kind, q);
   }
 
-  function startEdit(p: Product) {
+  function runImport(
+    payload:
+      | { mode: "single"; productId: number }
+      | { mode: "selected"; productIds: number[] }
+      | { mode: "all"; kind?: "all" | "product" | "service" },
+  ) {
     setError(null);
     setInfo(null);
-    setEditing(p);
-    setEditName(p.name ?? "");
-    setEditPrice(p.sale_price != null ? String(p.sale_price) : "");
-    setEditPurchasePrice(p.purchase_price != null ? String(p.purchase_price) : "");
-    setEditTax(p.tax_percent != null ? String(p.tax_percent) : "");
-    setEditKind(p.kind?.toLowerCase() === "product" ? "product" : "service");
-    setEditUnit(p.unit_of_measure ?? "");
-    setEditSellable(p.is_sellable !== false);
-    setEditDescription(p.description ?? "");
-  }
-
-  function saveEdit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editing) return;
-    setError(null);
-    setInfo(null);
-    const payload: Record<string, unknown> = {
-      name: editName.trim(),
-      kind: editKind,
-      is_sellable: editSellable,
-      unit_of_measure: editUnit.trim() || null,
-      description: editDescription.trim() || null,
-    };
-    if (editPrice !== "") payload.sale_price = Number(editPrice);
-    if (editPurchasePrice !== "") payload.purchase_price = Number(editPurchasePrice);
-    if (editTax !== "") payload.tax_percent = Number(editTax);
-
     startTransition(async () => {
-      const res = await fetch(`/api/v1/integrations/sigesc/products/${editing.id}`, {
-        method: "PATCH",
+      const res = await fetch("/api/v1/integrations/sigesc/catalog-mappings/import", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error ?? "Falha ao actualizar produto/preço no SIGESC");
+        setError(data.error ?? "Falha ao importar produtos");
         return;
       }
-      const updated = (data.product ?? {}) as Product;
-      const verifiedAt = new Date().toISOString();
-      setProducts((prev) =>
-        prev.map((p) => (p.id === editing.id ? { ...p, ...updated } : p)),
-      );
-      setMappings((prev) =>
-        prev.map((m) =>
-          m.centralProductId === String(editing.id)
-            ? {
-                ...m,
-                centralName: updated.name ?? m.centralName,
-                centralSalePrice:
-                  updated.sale_price != null ? Number(updated.sale_price) : m.centralSalePrice,
-                centralTaxPercent:
-                  updated.tax_percent != null ? Number(updated.tax_percent) : m.centralTaxPercent,
-                centralPriceVerifiedAt: verifiedAt,
-                priceFresh: true,
-              }
-            : m,
-        ),
-      );
-      const count = Number(data.updatedMappingsCount ?? 0);
-      setEditing(null);
+      const parts: string[] = [];
+      if (data.imported) parts.push(`${data.imported} novo(s) importado(s)`);
+      if (data.updated) parts.push(`${data.updated} actualizado(s)`);
+      if (data.skipped) parts.push(`${data.skipped} ignorado(s) sem preço`);
+      if (data.failed) parts.push(`${data.failed} com erro`);
       setInfo(
-        `Produto #${editing.id} actualizado no SIGESC (preço: ${updated.sale_price ?? "—"} AOA · IVA: ${updated.tax_percent ?? "—"}%).${count > 0 ? ` ${count} mapeamento(s) local(is) sincronizado(s) de imediato.` : ""}`,
+        parts.length > 0
+          ? `Importação concluída: ${parts.join(" · ")}. Já disponíveis nos selects do hotel.`
+          : "Nenhum produto novo para importar.",
       );
+      if (payload.mode === "selected") {
+        setSelectedIds([]);
+      }
+      await reloadMappings();
       router.refresh();
     });
   }
 
-  function mapProduct(e: React.FormEvent) {
+  function openCreateDrawer(defaultKind: "service" | "product" = "service") {
+    setError(null);
+    setInfo(null);
+    setEditingId(null);
+    setForm({
+      ...EMPTY_FORM,
+      kind: defaultKind,
+      unit_of_measure: defaultKind === "service" ? "noite" : "un",
+      inventory: defaultKind === "product",
+    });
+    setDrawerMode("create");
+  }
+
+  function openEditDrawer(p: Product) {
+    setError(null);
+    setInfo(null);
+    setEditingId(p.id);
+    setForm(productToForm(p));
+    setDrawerMode("edit");
+  }
+
+  function submitDrawer(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setInfo(null);
+    if (!form.name.trim()) {
+      setError("O nome do produto/serviço é obrigatório.");
+      return;
+    }
+
+    startTransition(async () => {
+      if (drawerMode === "create") {
+        const res = await fetch("/api/v1/integrations/sigesc/products", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildProductPayload(form, true)),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError(data.error ?? "Falha ao criar produto no servidor central");
+          return;
+        }
+        if (data.product) {
+          setProducts((prev) => [data.product as Product, ...prev]);
+        }
+        setInfo(
+          form.importToHotel
+            ? `Item "${data.product?.name ?? form.name}" criado no servidor central e disponibilizado nos selects do hotel.`
+            : `Item "${data.product?.name ?? form.name}" criado no servidor central.`,
+        );
+        setDrawerMode("closed");
+        await reloadMappings();
+        router.refresh();
+        return;
+      }
+
+      if (drawerMode === "edit" && editingId != null) {
+        const res = await fetch(`/api/v1/integrations/sigesc/products/${editingId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildProductPayload(form, false)),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError(data.error ?? "Falha ao actualizar produto no servidor central");
+          return;
+        }
+        const updated = data.product as Product | undefined;
+        if (updated) {
+          setProducts((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+        }
+        setInfo(
+          `Item "${updated?.name ?? form.name}" actualizado (${money(updated?.sale_price)}).${
+            data.updatedMappingsCount
+              ? ` ${data.updatedMappingsCount} ligação(ões) no hotel sincronizada(s).`
+              : ""
+          }`,
+        );
+        setDrawerMode("closed");
+        await reloadMappings();
+        router.refresh();
+      }
+    });
+  }
+
+  function saveCustomMapping(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setInfo(null);
@@ -210,526 +479,833 @@ export function ProductsClient({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error ?? "Mapping failed");
+        setError(data.error ?? "Falha ao guardar mapeamento");
         return;
       }
-      const m = data.mapping;
-      setMappings((prev) => {
-        const rest = prev.filter((x) => x.localCode !== m.localCode);
-        return [
-          ...rest,
-          {
-            id: m.id,
-            localCode: m.localCode,
-            localLabel: m.localLabel,
-            centralProductId: m.centralProductId,
-            centralName: m.centralName,
-            centralSalePrice: m.centralSalePrice != null ? Number(m.centralSalePrice) : null,
-            centralTaxPercent: m.centralTaxPercent != null ? Number(m.centralTaxPercent) : null,
-            centralPriceVerifiedAt: m.centralPriceVerifiedAt
-              ? new Date(m.centralPriceVerifiedAt).toISOString()
-              : null,
-            legacyHistoricalPrice:
-              m.legacyHistoricalPrice != null ? Number(m.legacyHistoricalPrice) : null,
-            active: m.active,
-            priceFresh: true,
-          },
-        ].sort((a, b) => a.localCode.localeCompare(b.localCode));
-      });
-      setInfo(`Mapeamento "${m.localCode}" guardado com preço central verificado.`);
+      setInfo(`Mapeamento "${localCode}" guardado com preço central verificado.`);
+      setShowCustomMapping(false);
+      await reloadMappings();
       router.refresh();
     });
   }
 
-  function refreshPrice(id: string) {
+  function refreshPrice(mappingId: string) {
     setError(null);
-    setInfo(null);
     startTransition(async () => {
-      const res = await fetch(`/api/v1/integrations/sigesc/catalog-mappings/${id}/refresh`, {
+      const res = await fetch(`/api/v1/integrations/sigesc/catalog-mappings/${mappingId}/refresh`, {
         method: "POST",
       });
-      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error ?? "Price refresh failed — central price could not be verified");
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Falha ao actualizar preço");
         return;
       }
-      const m = data.mapping;
-      setMappings((prev) =>
-        prev.map((x) =>
-          x.id === id
-            ? {
-                ...x,
-                centralSalePrice: m.centralSalePrice,
-                centralTaxPercent: m.centralTaxPercent,
-                centralName: m.centralName,
-                centralPriceVerifiedAt: m.centralPriceVerifiedAt,
-                priceFresh: true,
-              }
-            : x,
-        ),
-      );
-      setInfo(`Preço central actualizado (${m.centralSalePrice} AOA).`);
-    });
-  }
-
-  function toggleMappingActive(id: string, nextActive: boolean) {
-    setError(null);
-    startTransition(async () => {
-      const res = await fetch(`/api/v1/integrations/sigesc/catalog-mappings/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active: nextActive }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error ?? "Falha ao actualizar estado do mapeamento");
-        return;
-      }
-      setMappings((prev) =>
-        prev.map((x) => (x.id === id ? { ...x, active: nextActive } : x)),
-      );
+      setInfo("Preço sincronizado com o sistema central.");
+      await reloadMappings();
       router.refresh();
     });
   }
 
-  function createProduct(e: React.FormEvent) {
-    e.preventDefault();
+  function removeMapping(mappingId: string) {
     setError(null);
-    setInfo(null);
     startTransition(async () => {
-      const res = await fetch("/api/v1/integrations/sigesc/products", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newName,
-          kind: newKind,
-          sale_price: newPrice ? Number(newPrice) : 0,
-          ...(newTax !== "" ? { tax_percent: Number(newTax) } : {}),
-          is_sellable: true,
-        }),
+      const res = await fetch(`/api/v1/integrations/sigesc/catalog-mappings/${mappingId}`, {
+        method: "DELETE",
       });
-      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error ?? "Create failed");
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Falha ao remover ligação");
         return;
       }
-      setProducts((prev) => [data.product, ...prev]);
-      setNewName("");
-      setNewPrice("");
-      setNewTax("");
-      setInfo(`Produto/serviço #${data.product?.id} criado no SIGESC Central.`);
+      setMappings((prev) => prev.filter((m) => m.id !== mappingId));
+      setInfo("Item removido dos selects do hotel (mantido no servidor central).");
+      router.refresh();
     });
   }
-
-  const currentPage = meta?.current_page ?? page;
-  const lastPage = meta?.last_page ?? 1;
 
   return (
-    <div className="space-y-8">
-      {error ? <p className="font-ui text-sm text-red-700">{error}</p> : null}
-      {info ? <p className="font-ui text-sm text-teal-800">{info}</p> : null}
+    <div className="space-y-6">
+      {error ? (
+        <div className="rounded-lg border border-danger/30 bg-red-50 px-4 py-3 text-sm text-danger">
+          {error}
+        </div>
+      ) : null}
+      {info ? (
+        <div className="rounded-lg border border-teal-500/30 bg-teal-50 px-4 py-3 text-sm text-teal-900">
+          {info}
+        </div>
+      ) : null}
 
-      <div className="surface border-l-4 border-l-teal-600 p-4">
-        <p className="font-ui text-sm text-ink-900">
-          O preço oficial vem exclusivamente do <strong>SIGESC Central</strong>. Alterações de
-          preço aqui actualizam directamente o SIGESC e sincronizam imediatamente todos os
-          mapeamentos locais associados.
-        </p>
-      </div>
+      {/* Top action bar */}
+      <div className="surface p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-ink-900">Catálogo do Sistema Central</h2>
+            <p className="mt-0.5 text-sm text-stone-500">
+              Importe todos os itens, vários selecionados ou um por um para aparecerem nos selects de
+              consumo e faturação do hotel.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={pending}
+              onClick={() =>
+                runImport({
+                  mode: "all",
+                  kind: kind === "product" || kind === "service" ? kind : "all",
+                })
+              }
+              className="gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Importar todos ({kind === "all" ? "catálogo completo" : kind === "service" ? "serviços" : "produtos"})
+            </Button>
+            <Button
+              type="button"
+              disabled={pending}
+              onClick={() => openCreateDrawer("service")}
+              className="gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Novo produto / serviço
+            </Button>
+          </div>
+        </div>
 
-      <section>
-        <h2 className="mb-2 text-lg font-semibold text-ink-900">Catálogo central</h2>
-        <form onSubmit={search} className="mb-4 flex flex-wrap gap-2">
+        {/* Search & kind filter */}
+        <form onSubmit={search} className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Pesquisar por nome, código SKU ou código de barras…"
+              className="h-10 w-full rounded-md border border-sand-200 bg-white pl-9 pr-3 text-sm outline-none ring-teal-500/30 focus:ring-2"
+            />
+          </div>
           <select
             value={kind}
-            onChange={(e) => setKind(e.target.value)}
-            className="font-ui h-10 rounded-md border border-sand-200 bg-white px-3 text-sm"
+            onChange={(e) => {
+              setKind(e.target.value);
+              loadPage(1, e.target.value, q);
+            }}
+            className="h-10 rounded-md border border-sand-200 bg-white px-3 text-sm"
           >
-            <option value="service">Serviços</option>
-            <option value="product">Produtos</option>
-            <option value="all">Todos</option>
+            <option value="all">Todos (Produtos + Serviços)</option>
+            <option value="service">Apenas Serviços</option>
+            <option value="product">Apenas Produtos</option>
           </select>
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Pesquisar…"
-            className="font-ui h-10 min-w-[14rem] flex-1 rounded-md border border-sand-200 px-3 text-sm"
-          />
-          <Button type="submit" disabled={pending}>
+          <Button type="submit" variant="secondary" disabled={pending}>
             Pesquisar
           </Button>
         </form>
 
-        {editing ? (
-          <form onSubmit={saveEdit} className="surface mb-4 border-l-4 border-l-teal-600 p-5">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-lg font-semibold text-ink-900">
-                Editar produto / alterar preço #{editing.id}
-              </h3>
-              <button
+        {/* Multi-selection batch bar */}
+        {selectedIds.length > 0 ? (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-teal-500/30 bg-teal-50/70 px-4 py-2.5">
+            <div className="flex items-center gap-2 text-sm font-medium text-teal-900">
+              <CheckSquare className="h-4 w-4 text-teal-700" />
+              <span>
+                {selectedIds.length} {selectedIds.length === 1 ? "item selecionado" : "itens selecionados"}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
                 type="button"
-                className="font-ui text-xs text-stone-500 underline"
-                onClick={() => setEditing(null)}
+                size="sm"
+                disabled={pending}
+                onClick={() => runImport({ mode: "selected", productIds: selectedIds })}
+                className="gap-1.5"
               >
-                Cancelar
-              </button>
-            </div>
-            <p className="font-ui mt-1 text-xs text-stone-500">
-              Actualiza no SIGESC Central e propaga imediatamente para o cache de mapeamentos locais.
-            </p>
-            <div className="font-ui mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-              <label className="block sm:col-span-2">
-                <span className="text-xs text-stone-500">Nome *</span>
-                <input
-                  required
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  className="mt-1 h-10 w-full rounded-md border border-sand-200 px-3"
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs text-stone-500">Preço de venda central (AOA)</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={editPrice}
-                  onChange={(e) => setEditPrice(e.target.value)}
-                  className="mt-1 h-10 w-full rounded-md border border-sand-200 px-3"
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs text-stone-500">IVA (%)</span>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  value={editTax}
-                  onChange={(e) => setEditTax(e.target.value)}
-                  className="mt-1 h-10 w-full rounded-md border border-sand-200 px-3"
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs text-stone-500">Tipo</span>
-                <select
-                  value={editKind}
-                  onChange={(e) => setEditKind(e.target.value as "service" | "product")}
-                  className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
-                >
-                  <option value="service">Serviço</option>
-                  <option value="product">Produto</option>
-                </select>
-              </label>
-              <label className="block">
-                <span className="text-xs text-stone-500">Preço de custo (opcional)</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={editPurchasePrice}
-                  onChange={(e) => setEditPurchasePrice(e.target.value)}
-                  className="mt-1 h-10 w-full rounded-md border border-sand-200 px-3"
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs text-stone-500">Unidade</span>
-                <input
-                  value={editUnit}
-                  onChange={(e) => setEditUnit(e.target.value)}
-                  placeholder="UN, NOITE, HORA…"
-                  className="mt-1 h-10 w-full rounded-md border border-sand-200 px-3"
-                />
-              </label>
-              <label className="flex items-center gap-2 self-end pb-2 text-xs text-stone-700">
-                <input
-                  type="checkbox"
-                  checked={editSellable}
-                  onChange={(e) => setEditSellable(e.target.checked)}
-                />
-                Vendável (is_sellable)
-              </label>
-            </div>
-            <input
-              value={editDescription}
-              onChange={(e) => setEditDescription(e.target.value)}
-              placeholder="Descrição (opcional)"
-              className="font-ui mt-3 h-10 w-full rounded-md border border-sand-200 px-3 text-sm"
-            />
-            <div className="mt-4 flex justify-end gap-2">
-              <Button type="button" variant="secondary" onClick={() => setEditing(null)}>
-                Cancelar
+                <Download className="h-3.5 w-3.5" />
+                Importar selecionados ({selectedIds.length})
               </Button>
-              <Button type="submit" disabled={pending}>
-                {pending ? "A guardar…" : "Guardar no SIGESC"}
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelectedIds([])}
+              >
+                Limpar seleção
               </Button>
             </div>
-          </form>
+          </div>
         ) : null}
 
-        <div className="surface overflow-hidden">
-          <table className="font-ui w-full text-left text-sm">
-            <thead className="border-b border-sand-200 bg-sand-50/80 text-xs uppercase tracking-wide text-stone-500">
+        {/* Catalog table */}
+        <div className="mt-4 overflow-x-auto">
+          <table className="data-table min-w-[820px]">
+            <thead>
               <tr>
-                <th className="px-4 py-3">ID</th>
-                <th className="px-4 py-3">Nome</th>
-                <th className="px-4 py-3">Tipo</th>
-                <th className="px-4 py-3">Preço central</th>
-                <th className="px-4 py-3">IVA %</th>
-                <th className="px-4 py-3">Acção</th>
+                <th className="w-10">
+                  <input
+                    type="checkbox"
+                    checked={allPageSelected}
+                    onChange={toggleSelectAllPage}
+                    aria-label="Selecionar todos desta página"
+                    className="h-4 w-4 rounded border-sand-200 accent-teal-600"
+                  />
+                </th>
+                <th>Produto / Serviço</th>
+                <th>Tipo / Unidade</th>
+                <th>Preço venda</th>
+                <th>IVA</th>
+                <th>Estado no Hotel</th>
+                <th className="text-right">Acções</th>
               </tr>
             </thead>
             <tbody>
-              {products.map((p) => (
-                <tr key={p.id} className="border-b border-sand-100">
-                  <td className="px-4 py-3 text-stone-500">{p.id}</td>
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-ink-900">{p.name}</div>
-                    {p.code ? <div className="text-xs text-stone-500">{p.code}</div> : null}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-stone-500">
-                    {p.kind === "product" ? "Produto" : "Serviço"}
-                  </td>
-                  <td className="px-4 py-3">
-                    {p.sale_price ?? "—"}
-                    <span className="ml-1 text-xs text-stone-400">SIGESC</span>
-                  </td>
-                  <td className="px-4 py-3">{p.tax_percent ?? "—"}</td>
-                  <td className="px-4 py-3">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      disabled={pending}
-                      onClick={() => startEdit(p)}
-                    >
-                      Editar / Preço
-                    </Button>
+              {products.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-sm text-stone-500">
+                    Nenhum produto ou serviço encontrado no catálogo central.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                products.map((p) => {
+                  const isImported = importedCentralIds.has(String(p.id));
+                  const isSelected = selectedIds.includes(p.id);
+                  const isProduct = (p.kind ?? "").toLowerCase() === "product";
+                  return (
+                    <tr key={p.id} className={isSelected ? "bg-teal-50/50" : undefined}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(p.id)}
+                          aria-label={`Selecionar ${p.name}`}
+                          className="h-4 w-4 rounded border-sand-200 accent-teal-600"
+                        />
+                      </td>
+                      <td>
+                        <div className="font-medium text-ink-900">{p.name}</div>
+                        <div className="font-mono text-xs text-stone-500">
+                          #{p.id}
+                          {p.code ? ` · ${p.code}` : ""}
+                          {p.barcode ? ` · EAN ${p.barcode}` : ""}
+                          {p.category_name ? ` · ${p.category_name}` : ""}
+                        </div>
+                      </td>
+                      <td>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-sand-100 px-2.5 py-0.5 text-xs font-medium text-stone-700">
+                          {isProduct ? (
+                            <Package className="h-3 w-3" />
+                          ) : (
+                            <Sparkles className="h-3 w-3" />
+                          )}
+                          {isProduct ? "Produto" : "Serviço"}
+                        </span>
+                        {p.unit_of_measure ? (
+                          <span className="ml-1.5 text-xs text-stone-500">{p.unit_of_measure}</span>
+                        ) : null}
+                      </td>
+                      <td className="font-medium tabular-nums text-ink-900">
+                        {money(p.sale_price)}
+                        {p.purchase_price != null ? (
+                          <div className="text-xs font-normal text-stone-500">
+                            Custo {money(p.purchase_price)}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="tabular-nums text-stone-700">
+                        {p.tax_percent != null ? `${p.tax_percent}%` : "0%"}
+                      </td>
+                      <td>
+                        {isImported ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
+                            <Check className="h-3 w-3" />
+                            Nos selects do hotel
+                          </span>
+                        ) : (
+                          <span className="text-xs text-stone-400">Não importado</span>
+                        )}
+                      </td>
+                      <td className="text-right">
+                        <div className="inline-flex items-center gap-1.5">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={isImported ? "ghost" : "secondary"}
+                            disabled={pending}
+                            onClick={() => runImport({ mode: "single", productId: p.id })}
+                            className="gap-1"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            {isImported ? "Actualizar" : "Importar"}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={pending}
+                            onClick={() => openEditDrawer(p)}
+                            className="gap-1"
+                          >
+                            <Edit3 className="h-3.5 w-3.5" />
+                            Editar
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
 
-        {meta ? (
-          <div className="font-ui mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-stone-500">
-            <span>
-              Página {currentPage} de {lastPage} · {meta.total ?? products.length} total
+        {/* Pagination */}
+        {meta && (meta.last_page ?? 1) > 1 ? (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-sand-100 pt-3 text-sm">
+            <span className="text-stone-500">
+              Página {page} de {meta.last_page} · {meta.total ?? products.length} itens no servidor central
             </span>
-            {lastPage > 1 ? (
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  disabled={pending || currentPage <= 1}
-                  onClick={() => loadPage(currentPage - 1)}
-                >
-                  ← Anterior
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  disabled={pending || currentPage >= lastPage}
-                  onClick={() => loadPage(currentPage + 1)}
-                >
-                  Próxima →
-                </Button>
-              </div>
-            ) : null}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={pending || page <= 1}
+                onClick={() => loadPage(page - 1)}
+              >
+                Anterior
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={pending || page >= (meta.last_page ?? 1)}
+                onClick={() => loadPage(page + 1)}
+              >
+                Seguinte
+              </Button>
+            </div>
           </div>
         ) : null}
-      </section>
+      </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <form onSubmit={createProduct} className="surface p-5">
-          <h3 className="text-lg font-semibold text-ink-900">Criar no catálogo SIGESC</h3>
-          <p className="font-ui mt-1 text-xs text-stone-500">
-            O preço enviado torna-se o preço oficial central (sujeito às regras fiscais SIGESC).
-          </p>
-          <div className="font-ui mt-4 space-y-3 text-sm">
-            <select
-              value={newKind}
-              onChange={(e) => setNewKind(e.target.value as "service" | "product")}
-              className="h-10 w-full rounded-md border border-sand-200 px-3"
-            >
-              <option value="service">Serviço</option>
-              <option value="product">Produto</option>
-            </select>
-            <input
-              required
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="Nome"
-              className="h-10 w-full rounded-md border border-sand-200 px-3"
-            />
-            <div className="grid gap-2 sm:grid-cols-2">
-              <input
-                value={newPrice}
-                onChange={(e) => setNewPrice(e.target.value)}
-                placeholder="Preço de venda central"
-                type="number"
-                min="0"
-                step="0.01"
-                className="h-10 w-full rounded-md border border-sand-200 px-3"
-              />
-              <input
-                value={newTax}
-                onChange={(e) => setNewTax(e.target.value)}
-                placeholder="IVA % (opcional)"
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                className="h-10 w-full rounded-md border border-sand-200 px-3"
-              />
-            </div>
-            <Button type="submit" disabled={pending} className="w-full">
-              Criar
-            </Button>
+      {/* Imported hotel selects / mappings */}
+      <div className="surface p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-ink-900">
+              Itens disponíveis nos Selects do Hotel ({mappings.length})
+            </h2>
+            <p className="mt-0.5 text-sm text-stone-500">
+              Todos os produtos e serviços abaixo estão prontos para lançar em consumos de estadia,
+              cotações e faturas.
+            </p>
           </div>
-        </form>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowCustomMapping((v) => !v)}
+            className="gap-1.5"
+          >
+            <Layers className="h-4 w-4" />
+            {showCustomMapping ? "Fechar mapeamento avançado" : "Mapear código especial (ex. alojamento)"}
+          </Button>
+        </div>
 
-        <form onSubmit={mapProduct} className="surface p-5">
-          <h3 className="text-lg font-semibold text-ink-900">Mapear serviço operacional</h3>
-          <p className="font-ui mt-1 text-xs text-stone-500">
-            Metadados locais (código/etiqueta) apenas — o preço é sempre o central verificado.
-          </p>
-          <div className="font-ui mt-4 space-y-3 text-sm">
-            <select
-              value={mappingKind}
-              onChange={(e) => setMappingKind(e.target.value as "SERVICE" | "PRODUCT")}
-              className="h-10 w-full rounded-md border border-sand-200 bg-white px-3"
-            >
-              <option value="SERVICE">Serviço</option>
-              <option value="PRODUCT">Produto</option>
-            </select>
+        {showCustomMapping ? (
+          <form
+            onSubmit={saveCustomMapping}
+            className="surface-muted mt-4 grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-5"
+          >
             <input
               required
               value={localCode}
               onChange={(e) => setLocalCode(e.target.value)}
-              placeholder="Código local"
-              className="h-10 w-full rounded-md border border-sand-200 px-3"
+              placeholder="Código local (ex. accommodation)"
+              className="h-10 rounded-md border border-sand-200 bg-white px-3 text-sm"
             />
             <input
               required
               value={localLabel}
               onChange={(e) => setLocalLabel(e.target.value)}
               placeholder="Etiqueta local"
-              className="h-10 w-full rounded-md border border-sand-200 px-3"
+              className="h-10 rounded-md border border-sand-200 bg-white px-3 text-sm"
             />
+            <select
+              value={mappingKind}
+              onChange={(e) => setMappingKind(e.target.value as "SERVICE" | "PRODUCT")}
+              className="h-10 rounded-md border border-sand-200 bg-white px-3 text-sm"
+            >
+              <option value="SERVICE">Serviço</option>
+              <option value="PRODUCT">Produto</option>
+            </select>
             <SearchableSelect
-              required
               options={productOptions}
               value={centralProductId}
-              onChange={(val) => {
-                setCentralProductId(val);
-                const found = products.find((p) => String(p.id) === val);
-                if (found?.kind?.toLowerCase() === "product") setMappingKind("PRODUCT");
-                else if (found?.kind?.toLowerCase() === "service") setMappingKind("SERVICE");
-              }}
+              onChange={setCentralProductId}
               labels={{
-                placeholder: "Produto central SIGESC",
-                searchPlaceholder: "Nome, código, ID…",
-                empty: "Pesquise o catálogo acima primeiro",
+                placeholder: "Produto central…",
+                searchPlaceholder: "Pesquisar…",
               }}
-              clearable={false}
             />
-            <Button type="submit" disabled={pending || !centralProductId} className="w-full">
-              Guardar mapeamento
+            <Button type="submit" disabled={pending || !centralProductId}>
+              Guardar ligação
             </Button>
-          </div>
-        </form>
-      </div>
+          </form>
+        ) : null}
 
-      <section>
-        <h2 className="mb-2 text-lg font-semibold text-ink-900">Mapeamentos</h2>
-        <div className="surface overflow-hidden">
-          {mappings.length === 0 ? (
-            <p className="font-ui p-5 text-sm text-stone-500">Nenhum mapeamento ainda.</p>
-          ) : (
-            <table className="font-ui w-full text-left text-sm">
-              <thead className="border-b border-sand-200 bg-sand-50/80 text-xs uppercase text-stone-500">
+        <div className="mt-4 overflow-x-auto">
+          <table className="data-table min-w-[760px]">
+            <thead>
+              <tr>
+                <th>Código / Nome no Hotel</th>
+                <th>Item Central</th>
+                <th>Preço verificado</th>
+                <th>IVA</th>
+                <th className="text-right">Acções</th>
+              </tr>
+            </thead>
+            <tbody>
+              {mappings.length === 0 ? (
                 <tr>
-                  <th className="px-4 py-3">Local</th>
-                  <th className="px-4 py-3">Preço central</th>
-                  <th className="px-4 py-3">Verificação</th>
-                  <th className="px-4 py-3">Estado</th>
-                  <th className="px-4 py-3" />
+                  <td colSpan={5} className="py-8 text-center text-sm text-stone-500">
+                    Ainda nenhum produto importado. Clique em &ldquo;Importar todos&rdquo; acima para
+                    disponibilizar o catálogo inteiro nos selects.
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {mappings.map((m) => (
-                  <tr
-                    key={m.id}
-                    className={`border-b border-sand-100 ${m.active ? "" : "opacity-60"}`}
-                  >
-                    <td className="px-4 py-3">
+              ) : (
+                mappings.map((m) => (
+                  <tr key={m.id}>
+                    <td>
                       <div className="font-medium text-ink-900">{m.localLabel}</div>
-                      <div className="text-xs text-stone-500">
-                        {m.localCode} → #{m.centralProductId} {m.centralName}
+                      <div className="font-mono text-xs text-stone-500">{m.localCode}</div>
+                    </td>
+                    <td>
+                      <div className="text-stone-700">{m.centralName ?? "—"}</div>
+                      <div className="font-mono text-xs text-stone-500">ID #{m.centralProductId}</div>
+                    </td>
+                    <td className="font-medium tabular-nums">
+                      {money(m.centralSalePrice)}
+                      <div className="text-xs font-normal text-stone-500">
+                        {m.priceFresh ? "Verificado recentemente" : "Sincronizar preço"}
                       </div>
                     </td>
-                    <td className="px-4 py-3">
-                      {m.centralSalePrice != null ? (
-                        <>
-                          {m.centralSalePrice}
-                          <span className="ml-1 text-xs text-stone-400">
-                            SIGESC{m.centralTaxPercent != null ? ` · IVA ${m.centralTaxPercent}%` : ""}
-                          </span>
-                        </>
-                      ) : (
-                        <span className="text-amber-700">Não verificado</span>
-                      )}
+                    <td className="tabular-nums">
+                      {m.centralTaxPercent != null ? `${m.centralTaxPercent}%` : "0%"}
                     </td>
-                    <td className="px-4 py-3 text-xs text-stone-500">
-                      {m.priceFresh
-                        ? `Verificado ${m.centralPriceVerifiedAt ?? ""}`
-                        : "Cache pode estar desactualizado"}
-                      {m.legacyHistoricalPrice != null ? (
-                        <div className="text-stone-400">
-                          Histórico Phase 4 (não autoritativo): {m.legacyHistoricalPrice}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-3 text-xs">
-                      {m.active ? (
-                        <span className="text-teal-800">Activo</span>
-                      ) : (
-                        <span className="text-stone-500">Inactivo</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-2">
+                    <td className="text-right">
+                      <div className="inline-flex gap-1.5">
                         <Button
                           type="button"
                           size="sm"
-                          variant="secondary"
+                          variant="ghost"
                           disabled={pending}
                           onClick={() => refreshPrice(m.id)}
+                          className="gap-1"
                         >
-                          Actualizar preço
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          Sincronizar
                         </Button>
                         <Button
                           type="button"
                           size="sm"
-                          variant="secondary"
+                          variant="ghost"
                           disabled={pending}
-                          onClick={() => toggleMappingActive(m.id, !m.active)}
+                          onClick={() => removeMapping(m.id)}
+                          className="text-danger hover:bg-red-50"
                         >
-                          {m.active ? "Desactivar" : "Reactivar"}
+                          <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
-      </section>
+      </div>
+
+      {/* Full Central Product / Service Create & Edit Drawer */}
+      {drawerMode !== "closed" ? (
+        <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-ink-950/45">
+          <button
+            type="button"
+            className="absolute inset-0 cursor-default"
+            aria-label="Fechar"
+            onClick={() => setDrawerMode("closed")}
+          />
+          <div className="relative flex h-full w-full max-w-2xl flex-col bg-sand-50 shadow-2xl animate-fade-up">
+            <div className="flex items-center justify-between border-b border-sand-200 bg-white px-6 py-4">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">
+                  Catálogo do Sistema Central
+                </p>
+                <h3 className="text-xl font-semibold text-ink-900">
+                  {drawerMode === "create"
+                    ? "Criar novo produto ou serviço"
+                    : `Editar item #${editingId}`}
+                </h3>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setDrawerMode("closed")}
+                aria-label="Fechar"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <form onSubmit={submitDrawer} className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
+                {/* Section 1: Identification */}
+                <section className="surface space-y-4 p-4">
+                  <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-teal-700">
+                    1. Identificação
+                  </h4>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block text-sm sm:col-span-2">
+                      <span className="text-stone-600">Nome do produto ou serviço *</span>
+                      <input
+                        required
+                        value={form.name}
+                        onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                        placeholder="Ex.: Diária Suite Deluxe / Água Mineral 1.5L"
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Tipo *</span>
+                      <select
+                        value={form.kind}
+                        onChange={(e) => {
+                          const nextKind = e.target.value as "service" | "product";
+                          setForm((f) => ({
+                            ...f,
+                            kind: nextKind,
+                            inventory: nextKind === "product" ? f.inventory : false,
+                            unit_of_measure:
+                              f.unit_of_measure === "noite" && nextKind === "product"
+                                ? "un"
+                                : f.unit_of_measure === "un" && nextKind === "service"
+                                  ? "noite"
+                                  : f.unit_of_measure,
+                          }));
+                        }}
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm"
+                      >
+                        <option value="service">Serviço (alojamento, spa, lavandaria…)</option>
+                        <option value="product">Produto físico (minibar, restaurante, loja…)</option>
+                      </select>
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Estado</span>
+                      <select
+                        value={form.status}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, status: e.target.value as "active" | "inactive" }))
+                        }
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm"
+                      >
+                        <option value="active">Activo</option>
+                        <option value="inactive">Inactivo</option>
+                      </select>
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Código / SKU</span>
+                      <input
+                        value={form.code}
+                        onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
+                        placeholder="Ex.: HOT-SUITE-01"
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 font-mono text-sm"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Código de barras (EAN)</span>
+                      <input
+                        value={form.barcode}
+                        onChange={(e) => setForm((f) => ({ ...f, barcode: e.target.value }))}
+                        placeholder="Opcional"
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 font-mono text-sm"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Referência interna</span>
+                      <input
+                        value={form.reference}
+                        onChange={(e) => setForm((f) => ({ ...f, reference: e.target.value }))}
+                        placeholder="Gerada automaticamente se vazio"
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 font-mono text-sm"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">ID da Categoria (central)</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={form.category_id}
+                        onChange={(e) => setForm((f) => ({ ...f, category_id: e.target.value }))}
+                        placeholder="Opcional"
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Fabricante / Marca</span>
+                      <input
+                        value={form.manufacturer}
+                        onChange={(e) => setForm((f) => ({ ...f, manufacturer: e.target.value }))}
+                        placeholder="Opcional"
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">URL da imagem</span>
+                      <input
+                        value={form.image}
+                        onChange={(e) => setForm((f) => ({ ...f, image: e.target.value }))}
+                        placeholder="https://… (opcional)"
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm"
+                      />
+                    </label>
+                    <label className="block text-sm sm:col-span-2">
+                      <span className="text-stone-600">Descrição</span>
+                      <textarea
+                        rows={2}
+                        value={form.description}
+                        onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                        placeholder="Detalhes apresentados nas faturas e catálogo"
+                        className="mt-1 w-full rounded-md border border-sand-200 bg-white px-3 py-2 text-sm"
+                      />
+                    </label>
+                  </div>
+                </section>
+
+                {/* Section 2: Pricing & Taxes */}
+                <section className="surface space-y-4 p-4">
+                  <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-teal-700">
+                    2. Preços e Fiscalidade
+                  </h4>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Preço de venda c/ IVA (AOA) *</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        required
+                        value={form.sale_price}
+                        onChange={(e) => setForm((f) => ({ ...f, sale_price: e.target.value }))}
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm tabular-nums"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Preço de venda s/ IVA (opcional)</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.sale_price_ex_tax}
+                        onChange={(e) => setForm((f) => ({ ...f, sale_price_ex_tax: e.target.value }))}
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm tabular-nums"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Preço de compra / custo (AOA)</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.purchase_price}
+                        onChange={(e) => setForm((f) => ({ ...f, purchase_price: e.target.value }))}
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm tabular-nums"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Custo s/ IVA (opcional)</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.purchase_price_ex_tax}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, purchase_price_ex_tax: e.target.value }))
+                        }
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm tabular-nums"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Preço médio (opcional)</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.average_price}
+                        onChange={(e) => setForm((f) => ({ ...f, average_price: e.target.value }))}
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm tabular-nums"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Taxa de IVA (%)</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        value={form.tax_percent}
+                        onChange={(e) => setForm((f) => ({ ...f, tax_percent: e.target.value }))}
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm tabular-nums"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Código de isenção fiscal</span>
+                      <input
+                        value={form.tax_exception_code}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, tax_exception_code: e.target.value }))
+                        }
+                        placeholder="Ex.: M04 (quando IVA = 0%)"
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 font-mono text-sm"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Motivo de isenção fiscal</span>
+                      <input
+                        value={form.tax_exception_reason}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, tax_exception_reason: e.target.value }))
+                        }
+                        placeholder="Ex.: IVA - Regime de não sujeição"
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm"
+                      />
+                    </label>
+                  </div>
+                </section>
+
+                {/* Section 3: Unit & Stock */}
+                <section className="surface space-y-4 p-4">
+                  <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-teal-700">
+                    3. Unidade e Operação
+                  </h4>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Unidade de medida</span>
+                      <input
+                        value={form.unit_of_measure}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, unit_of_measure: e.target.value }))
+                        }
+                        placeholder="un, noite, hora, kg, L"
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Modo de preço</span>
+                      <select
+                        value={form.pricing_mode}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            pricing_mode: e.target.value as "unit" | "weight",
+                          }))
+                        }
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm"
+                      >
+                        <option value="unit">Por unidade</option>
+                        <option value="weight">Por peso</option>
+                      </select>
+                    </label>
+                    <label className="block text-sm">
+                      <span className="text-stone-600">Stock mínimo</span>
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        value={form.min_quantity}
+                        onChange={(e) => setForm((f) => ({ ...f, min_quantity: e.target.value }))}
+                        disabled={form.kind === "service"}
+                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm disabled:opacity-50"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="flex flex-wrap gap-5 pt-1 text-sm text-ink-900">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={form.is_sellable}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, is_sellable: e.target.checked }))
+                        }
+                        className="h-4 w-4 accent-teal-600"
+                      />
+                      Disponível para venda
+                    </label>
+                    {form.kind === "product" ? (
+                      <>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={form.inventory}
+                            onChange={(e) =>
+                              setForm((f) => ({ ...f, inventory: e.target.checked }))
+                            }
+                            className="h-4 w-4 accent-teal-600"
+                          />
+                          Controlar stock
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={form.allow_backorder}
+                            onChange={(e) =>
+                              setForm((f) => ({ ...f, allow_backorder: e.target.checked }))
+                            }
+                            className="h-4 w-4 accent-teal-600"
+                          />
+                          Permitir venda sem stock
+                        </label>
+                      </>
+                    ) : null}
+                  </div>
+                </section>
+              </div>
+
+              <div className="space-y-3 border-t border-sand-200 bg-white px-6 py-4">
+                {drawerMode === "create" ? (
+                  <label className="flex items-center gap-2 text-sm text-ink-900">
+                    <input
+                      type="checkbox"
+                      checked={form.importToHotel}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, importToHotel: e.target.checked }))
+                      }
+                      className="h-4 w-4 accent-teal-600"
+                    />
+                    Disponibilizar imediatamente nos selects do hotel após criar
+                  </label>
+                ) : null}
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setDrawerMode("closed")}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button type="submit" disabled={pending}>
+                    {pending
+                      ? "A guardar…"
+                      : drawerMode === "create"
+                        ? "Criar no servidor central"
+                        : "Guardar alterações"}
+                  </Button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
