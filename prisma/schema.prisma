@@ -399,6 +399,11 @@ model Role {
   @@map("roles")
 }
 
+enum PermissionOverrideEffect {
+  GRANT
+  DENY
+}
+
 model Permission {
   id          String  @id @default(uuid())
   code        String  @unique @db.VarChar(120)
@@ -406,7 +411,8 @@ model Permission {
   action      String  @db.VarChar(64)
   description String? @db.VarChar(255)
 
-  roles RolePermission[]
+  roles     RolePermission[]
+  overrides MembershipPermissionOverride[]
 
   @@map("permissions")
 }
@@ -432,14 +438,32 @@ model Membership {
   createdAt               DateTime         @default(now()) @map("created_at")
   updatedAt               DateTime         @updatedAt @map("updated_at")
 
-  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role        Role        @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  institution         Institution                    @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  user                User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role                Role                           @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  permissionOverrides MembershipPermissionOverride[]
 
   @@unique([institutionId, userId])
   @@index([userId])
   @@index([institutionId, status])
   @@map("memberships")
+}
+
+model MembershipPermissionOverride {
+  id              String                   @id @default(uuid())
+  membershipId    String                   @map("membership_id")
+  permissionId    String                   @map("permission_id")
+  effect          PermissionOverrideEffect
+  updatedByUserId String?                  @map("updated_by_user_id")
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, permissionId])
+  @@index([membershipId])
+  @@map("membership_permission_overrides")
 }
 
 // ─── Hotels & rooms ──────────────────────────────────────────────────────────
@@ -478,18 +502,22 @@ model Hotel {
 }
 
 model HotelSettings {
-  id               String   @id @default(uuid())
-  hotelId          String   @unique @map("hotel_id")
-  checkInTime      String   @default("14:00") @map("check_in_time") @db.VarChar(8)
-  checkOutTime     String   @default("12:00") @map("check_out_time") @db.VarChar(8)
-  timezone         String   @default("Africa/Luanda") @db.VarChar(64)
-  currency         String   @default("AOA") @db.Char(3)
-  locale           String   @default("pt") @db.VarChar(8)
-  maxStayNights    Int?     @map("max_stay_nights")
-  allowChildren    Boolean  @default(true) @map("allow_children")
-  policiesJson     Json?    @map("policies_json")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  id                            String   @id @default(uuid())
+  hotelId                       String   @unique @map("hotel_id")
+  checkInTime                   String   @default("14:00") @map("check_in_time") @db.VarChar(8)
+  checkOutTime                  String   @default("12:00") @map("check_out_time") @db.VarChar(8)
+  earlyCheckInFrom              String   @default("10:00") @map("early_check_in_from") @db.VarChar(8)
+  lateCheckOutUntil             String   @default("18:00") @map("late_check_out_until") @db.VarChar(8)
+  housekeepingTurnaroundMinutes Int      @default(60) @map("housekeeping_turnaround_minutes")
+  noShowCutoffTime              String   @default("23:59") @map("no_show_cutoff_time") @db.VarChar(8)
+  timezone                      String   @default("Africa/Luanda") @db.VarChar(64)
+  currency                      String   @default("AOA") @db.Char(3)
+  locale                        String   @default("pt") @db.VarChar(8)
+  maxStayNights                 Int?     @map("max_stay_nights")
+  allowChildren                 Boolean  @default(true) @map("allow_children")
+  policiesJson                  Json?    @map("policies_json")
+  createdAt                     DateTime @default(now()) @map("created_at")
+  updatedAt                     DateTime @updatedAt @map("updated_at")
 
   hotel Hotel @relation(fields: [hotelId], references: [id], onDelete: Cascade)
 
@@ -711,6 +739,7 @@ model InvoiceIntegration {
 
   @@unique([institutionId, externalId])
   @@index([institutionId, status])
+  @@index([institutionId, orderReference])
   @@index([saleKey])
   @@index([reservationId])
   @@index([stayId])
@@ -742,21 +771,27 @@ model InvoiceSubmissionAttempt {
 // ─── Reservations & stays ────────────────────────────────────────────────────
 
 model Reservation {
-  id              String            @id @default(uuid())
-  hotelId         String            @map("hotel_id")
-  institutionId   String            @map("institution_id")
-  code            String            @db.VarChar(64)
-  status          ReservationStatus @default(DRAFT)
-  arrivalDate     DateTime          @map("arrival_date") @db.Date
-  departureDate   DateTime          @map("departure_date") @db.Date
-  adults          Int               @default(1)
-  children        Int               @default(0)
-  source          String?           @db.VarChar(64)
-  internalNotes   String?           @map("internal_notes") @db.Text
-  operationalTotal Decimal?         @map("operational_total") @db.Decimal(14, 2)
-  currency        String            @default("AOA") @db.Char(3)
-  createdAt       DateTime          @default(now()) @map("created_at")
-  updatedAt       DateTime          @updatedAt @map("updated_at")
+  id                    String            @id @default(uuid())
+  hotelId               String            @map("hotel_id")
+  institutionId         String            @map("institution_id")
+  code                  String            @db.VarChar(64)
+  status                ReservationStatus @default(DRAFT)
+  arrivalDate           DateTime          @map("arrival_date") @db.Date
+  departureDate         DateTime          @map("departure_date") @db.Date
+  expectedCheckInTime   String?           @map("expected_check_in_time") @db.VarChar(8)
+  expectedCheckOutTime  String?           @map("expected_check_out_time") @db.VarChar(8)
+  earlyCheckInRequested Boolean           @default(false) @map("early_check_in_requested")
+  lateCheckOutRequested Boolean           @default(false) @map("late_check_out_requested")
+  lateCheckOutApproved  Boolean           @default(false) @map("late_check_out_approved")
+  isRetroactive         Boolean           @default(false) @map("is_retroactive")
+  adults                Int               @default(1)
+  children              Int               @default(0)
+  source                String?           @db.VarChar(64)
+  internalNotes         String?           @map("internal_notes") @db.Text
+  operationalTotal      Decimal?          @map("operational_total") @db.Decimal(14, 2)
+  currency              String            @default("AOA") @db.Char(3)
+  createdAt             DateTime          @default(now()) @map("created_at")
+  updatedAt             DateTime          @updatedAt @map("updated_at")
 
   hotel     Hotel              @relation(fields: [hotelId], references: [id], onDelete: Cascade)
   rooms     ReservationRoom[]
