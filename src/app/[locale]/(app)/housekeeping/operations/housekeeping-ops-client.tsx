@@ -66,16 +66,19 @@ export function HousekeepingOpsClient({
     return [...set].sort();
   }, [tasks]);
 
+  async function fetchTasks() {
+    const params = new URLSearchParams();
+    if (hotelId) params.set("hotelId", hotelId);
+    if (statusFilter) params.set("status", statusFilter);
+    if (floor) params.set("floor", floor);
+    const res = await fetch(`/api/v1/housekeeping?${params}`, { cache: "no-store" });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) setTasks(JSON.parse(JSON.stringify(data.tasks ?? [])));
+  }
+
   function refresh() {
     startTransition(async () => {
-      const params = new URLSearchParams();
-      if (hotelId) params.set("hotelId", hotelId);
-      if (statusFilter) params.set("status", statusFilter);
-      if (floor) params.set("floor", floor);
-      if (assignee.trim()) params.set("assignedTo", assignee.trim());
-      const res = await fetch(`/api/v1/housekeeping?${params}`);
-      const data = await res.json();
-      if (res.ok) setTasks(JSON.parse(JSON.stringify(data.tasks ?? [])));
+      await fetchTasks();
     });
   }
 
@@ -88,13 +91,14 @@ export function HousekeepingOpsClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Acção falhou");
+        await fetchTasks();
         return;
       }
       setMessage("Actualizado");
-      refresh();
+      await fetchTasks();
     });
   }
 
@@ -152,7 +156,7 @@ export function HousekeepingOpsClient({
           ))}
         </select>
         <label className="font-ui block text-xs text-stone-500">
-          Responsável / rejeição
+          Responsável (para atribuir)
           <input
             value={assignee}
             onChange={(e) => setAssignee(e.target.value)}
@@ -161,7 +165,7 @@ export function HousekeepingOpsClient({
           />
         </label>
         <label className="font-ui block text-xs text-stone-500 sm:col-span-2">
-          Motivo de rejeição (obrigatório)
+          Motivo de rejeição (obrigatório ao rejeitar inspecção)
           <input
             value={rejectReason}
             onChange={(e) => setRejectReason(e.target.value)}
@@ -178,116 +182,147 @@ export function HousekeepingOpsClient({
         <EmptyState title="Sem tarefas" description="Nenhuma tarefa de governança aberta." />
       ) : (
         <ul className="space-y-3">
-          {filtered.map((t) => (
-            <li
-              key={t.id}
-              id={`task-${t.id}`}
-              className={`surface p-4 ${focusTaskId === t.id ? "ring-2 ring-teal-500" : ""}`}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="font-medium text-ink-900">
-                    {t.hotel.name} · Quarto {t.room.code}
-                    {t.room.floor ? ` · Andar ${t.room.floor}` : ""}
-                  </p>
-                  <p className="font-ui mt-1 text-xs text-stone-500">
-                    {t.kind} · prioridade {t.priority}
-                    {t.assignedTo ? ` · ${t.assignedTo}` : " · sem atribuição"}
-                    {t.deadlineAt
-                      ? ` · prazo ${new Date(t.deadlineAt).toLocaleString("pt-PT")}`
-                      : ""}
-                    {t.startedAt
-                      ? ` · início ${new Date(t.startedAt).toLocaleString("pt-PT")}`
-                      : ""}
-                    {t.completedAt
-                      ? ` · fim ${new Date(t.completedAt).toLocaleString("pt-PT")}`
-                      : ""}
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    <StatusPill value={t.status} />
-                    <StatusPill value={`HK ${t.room.housekeepingStatus}`} />
-                    <StatusPill value={t.room.occupancyStatus} />
-                    {t.room.maintenanceStatus ? (
-                      <StatusPill value={`M ${t.room.maintenanceStatus}`} />
-                    ) : null}
-                  </div>
-                  {t.inspectionResult ? (
-                    <p className="font-ui mt-2 text-xs text-stone-500">
-                      Inspecção: {t.inspectionResult}
-                      {t.inspectedAt
-                        ? ` · ${new Date(t.inspectedAt).toLocaleString("pt-PT")}`
+          {filtered.map((t) => {
+            const canAssign = !["COMPLETED", "CANCELLED"].includes(t.status);
+            const canStart = ["PENDING", "ASSIGNED", "REJECTED"].includes(t.status);
+            const canComplete = ["IN_PROGRESS", "ASSIGNED"].includes(t.status);
+            const canInspect = t.status === "INSPECTION_REQUIRED";
+            const canReopen = [
+              "COMPLETED",
+              "REJECTED",
+              "CANCELLED",
+              "INSPECTION_REQUIRED",
+            ].includes(t.status);
+
+            return (
+              <li
+                key={t.id}
+                id={`task-${t.id}`}
+                className={`surface p-4 ${focusTaskId === t.id ? "ring-2 ring-teal-500" : ""}`}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-ink-900">
+                      {t.hotel.name} · Quarto {t.room.code}
+                      {t.room.floor ? ` · Andar ${t.room.floor}` : ""}
+                    </p>
+                    <p className="font-ui mt-1 text-xs text-stone-500">
+                      {t.kind} · prioridade {t.priority}
+                      {t.assignedTo ? ` · ${t.assignedTo}` : " · sem atribuição"}
+                      {t.deadlineAt
+                        ? ` · prazo ${new Date(t.deadlineAt).toLocaleString("pt-PT")}`
+                        : ""}
+                      {t.startedAt
+                        ? ` · início ${new Date(t.startedAt).toLocaleString("pt-PT")}`
+                        : ""}
+                      {t.completedAt
+                        ? ` · fim ${new Date(t.completedAt).toLocaleString("pt-PT")}`
                         : ""}
                     </p>
-                  ) : null}
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      <StatusPill value={t.status} />
+                      <StatusPill value={`HK ${t.room.housekeepingStatus}`} />
+                      <StatusPill value={t.room.occupancyStatus} />
+                      {t.room.maintenanceStatus ? (
+                        <StatusPill value={`M ${t.room.maintenanceStatus}`} />
+                      ) : null}
+                    </div>
+                    {t.inspectionResult ? (
+                      <p className="font-ui mt-2 text-xs text-stone-500">
+                        Inspecção: {t.inspectionResult}
+                        {t.inspectedAt
+                          ? ` · ${new Date(t.inspectedAt).toLocaleString("pt-PT")}`
+                          : ""}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {canAssign ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={pending || !assignee.trim()}
+                        onClick={() => act(t.id, { action: "assign", assignedTo: assignee.trim() })}
+                      >
+                        Atribuir
+                      </Button>
+                    ) : null}
+                    {canStart ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={t.status === "PENDING" || t.status === "REJECTED" ? "default" : "secondary"}
+                        disabled={pending}
+                        onClick={() => act(t.id, { action: "start" })}
+                      >
+                        Iniciar
+                      </Button>
+                    ) : null}
+                    {canComplete ? (
+                      <>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={pending}
+                          onClick={() => act(t.id, { action: "complete", requireInspection: true })}
+                        >
+                          Concluir
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={pending}
+                          onClick={() => act(t.id, { action: "complete", requireInspection: false })}
+                        >
+                          Concluir (CLEAN)
+                        </Button>
+                      </>
+                    ) : null}
+                    {canInspect ? (
+                      <>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={pending}
+                          onClick={() => act(t.id, { action: "inspect", approved: true })}
+                        >
+                          Aprovar
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={pending || !rejectReason.trim()}
+                          onClick={() =>
+                            act(t.id, {
+                              action: "inspect",
+                              approved: false,
+                              notes: rejectReason.trim(),
+                            })
+                          }
+                        >
+                          Rejeitar
+                        </Button>
+                      </>
+                    ) : null}
+                    {canReopen ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={pending}
+                        onClick={() => act(t.id, { action: "reopen" })}
+                      >
+                        Reabrir
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    disabled={pending || !assignee.trim()}
-                    onClick={() => act(t.id, { action: "assign", assignedTo: assignee.trim() })}
-                  >
-                    Atribuir
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    disabled={pending}
-                    onClick={() => act(t.id, { action: "start" })}
-                  >
-                    Iniciar
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    disabled={pending}
-                    onClick={() => act(t.id, { action: "complete" })}
-                  >
-                    Concluir
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={pending}
-                    onClick={() => act(t.id, { action: "inspect", approved: true })}
-                  >
-                    Aprovar
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    disabled={pending || !rejectReason.trim()}
-                    onClick={() =>
-                      act(t.id, {
-                        action: "inspect",
-                        approved: false,
-                        notes: rejectReason.trim(),
-                      })
-                    }
-                  >
-                    Rejeitar
-                  </Button>
-                  {["COMPLETED", "REJECTED", "CANCELLED", "INSPECTION_REQUIRED"].includes(
-                    t.status,
-                  ) ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      disabled={pending}
-                      onClick={() => act(t.id, { action: "reopen" })}
-                    >
-                      Reabrir
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
