@@ -2,20 +2,37 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
+import { signOut } from "next-auth/react";
+import { LogOut } from "lucide-react";
 import { APP_NAV_GROUPS } from "./nav-config";
 import { cn } from "@/shared/utils";
 
+export function localizeHref(href: string, locale: string): string {
+  if (!locale || locale === "pt") return href;
+  if (href === "/") return `/${locale}`;
+  return `/${locale}${href.startsWith("/") ? href : `/${href}`}`;
+}
+
+function stripLocalePrefix(pathname: string): string {
+  const stripped = pathname.replace(/^\/(pt|en|fr|es)(?=\/|$)/, "");
+  return stripped || "/";
+}
+
 function isActivePath(pathname: string, href: string): boolean {
-  return pathname === href || pathname.endsWith(href) || pathname.includes(`${href}/`);
+  const clean = stripLocalePrefix(pathname);
+  return clean === href || clean.startsWith(`${href}/`);
 }
 
 export function SidebarNav({
   labels,
   permissions,
+  locale = "pt",
   onNavigate,
 }: {
   labels: Record<string, string>;
   permissions?: string[];
+  locale?: string;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
@@ -42,7 +59,7 @@ export function SidebarNav({
                 return (
                   <Link
                     key={item.href}
-                    href={item.href}
+                    href={localizeHref(item.href, locale)}
                     onClick={onNavigate}
                     className={cn(
                       "font-ui group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
@@ -72,7 +89,7 @@ export function SidebarNav({
 
 export function SidebarBrand({ hotelName }: { hotelName: string }) {
   return (
-    <div className="border-b border-white/10 px-5 py-6">
+    <div className="shrink-0 border-b border-white/10 px-5 py-5">
       <div className="flex items-center gap-3">
         <span
           aria-hidden
@@ -89,7 +106,50 @@ export function SidebarBrand({ hotelName }: { hotelName: string }) {
           </h1>
         </div>
       </div>
-      <p className="font-ui mt-3.5 truncate text-xs text-sidebar-muted">{hotelName}</p>
+      <p className="font-ui mt-3 truncate text-xs text-sidebar-muted">{hotelName}</p>
+    </div>
+  );
+}
+
+export function SidebarLogoutFooter({
+  userName,
+  locale = "pt",
+  logoutLabel = "Terminar sessão",
+  loggingOutLabel = "A terminar sessão…",
+}: {
+  userName: string;
+  locale?: string;
+  logoutLabel?: string;
+  loggingOutLabel?: string;
+}) {
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function handleLogout() {
+    setSigningOut(true);
+    try {
+      await signOut({ redirect: false });
+    } finally {
+      window.location.assign(localizeHref("/login", locale));
+    }
+  }
+
+  return (
+    <div className="shrink-0 border-t border-white/10 p-3">
+      <div className="mb-2 flex items-center gap-2.5 px-2">
+        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-500/20 text-xs font-semibold text-teal-200 ring-1 ring-teal-400/30">
+          {userName.slice(0, 1).toUpperCase()}
+        </span>
+        <span className="font-ui truncate text-xs font-medium text-sidebar-fg">{userName}</span>
+      </div>
+      <button
+        type="button"
+        disabled={signingOut}
+        onClick={handleLogout}
+        className="font-ui flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-red-300 transition-colors hover:bg-red-500/15 hover:text-red-200 disabled:opacity-60"
+      >
+        <LogOut className="h-4 w-4 shrink-0" />
+        <span className="truncate">{signingOut ? loggingOutLabel : logoutLabel}</span>
+      </button>
     </div>
   );
 }
@@ -97,16 +157,30 @@ export function SidebarBrand({ hotelName }: { hotelName: string }) {
 export function Sidebar({
   labels,
   hotelName,
+  userName,
   permissions,
+  locale = "pt",
+  logoutLabel,
+  loggingOutLabel,
 }: {
   labels: Record<string, string>;
   hotelName: string;
+  userName: string;
   permissions?: string[];
+  locale?: string;
+  logoutLabel?: string;
+  loggingOutLabel?: string;
 }) {
   return (
     <aside className="hidden h-full w-64 shrink-0 flex-col border-r border-white/5 bg-sidebar text-sidebar-fg lg:flex">
       <SidebarBrand hotelName={hotelName} />
-      <SidebarNav labels={labels} permissions={permissions} />
+      <SidebarNav labels={labels} permissions={permissions} locale={locale} />
+      <SidebarLogoutFooter
+        userName={userName}
+        locale={locale}
+        logoutLabel={logoutLabel}
+        loggingOutLabel={loggingOutLabel}
+      />
     </aside>
   );
 }

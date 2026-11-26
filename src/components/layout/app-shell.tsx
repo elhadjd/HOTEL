@@ -1,4 +1,4 @@
-import { getTranslations } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
 import { auth } from "@/server/auth";
 import { prisma } from "@/server/db";
 import { resolveTenantContext } from "@/modules/tenancy/tenant";
@@ -18,8 +18,7 @@ export async function AppShell({
   hotelName?: string;
   userName?: string;
 }) {
-  const t = await getTranslations();
-  const session = await auth();
+  const [t, locale, session] = await Promise.all([getTranslations(), getLocale(), auth()]);
   const mockMode = isAggregateMockMode();
 
   let resolvedHotel = hotelName ?? "Hotelaria";
@@ -52,10 +51,21 @@ export async function AppShell({
     ...APP_NAV_GROUPS.map((group) => [group.labelKey, t(group.labelKey)]),
   ]);
 
+  const logoutLabel = t("common.logout");
+  const loggingOutLabel = t("common.loggingOut");
+
   return (
     <div className="flex h-dvh overflow-hidden">
       {/* Fixed-height column: sidebar never scrolls with the data list */}
-      <Sidebar labels={labels} hotelName={resolvedHotel} permissions={permissions} />
+      <Sidebar
+        labels={labels}
+        hotelName={resolvedHotel}
+        userName={resolvedUser}
+        permissions={permissions}
+        locale={locale}
+        logoutLabel={logoutLabel}
+        loggingOutLabel={loggingOutLabel}
+      />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TopBar
           title={title}
@@ -63,8 +73,17 @@ export async function AppShell({
           hotelName={resolvedHotel}
           labels={labels}
           permissions={permissions}
+          locale={locale}
           searchPlaceholder={t("common.search")}
-          localeLabel={t("common.language")}
+          logoutLabel={logoutLabel}
+          loggingOutLabel={loggingOutLabel}
+          notificationsLabels={{
+            title: t("common.notifications"),
+            markAllRead: t("common.markAllRead"),
+            empty: t("common.noNotifications"),
+            operationalAlerts: t("common.operationalAlerts"),
+            systemNotifications: t("common.systemNotifications"),
+          }}
         />
         {mockMode ? (
           <div

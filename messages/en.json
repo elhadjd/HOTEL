@@ -43,7 +43,14 @@
     "comingSoon": "Module under construction — architecture ready",
     "save": "Save",
     "cancel": "Cancel",
-    "language": "EN"
+    "language": "EN",
+    "logout": "Sign out",
+    "loggingOut": "Signing out…",
+    "notifications": "Notifications",
+    "markAllRead": "Mark all as read",
+    "noNotifications": "All caught up — no pending alerts or notifications.",
+    "operationalAlerts": "Operational alerts",
+    "systemNotifications": "System notifications"
   },
   "auth": {
     "login": "Sign in",

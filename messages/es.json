@@ -43,7 +43,14 @@
     "comingSoon": "Módulo en construcción — arquitectura lista",
     "save": "Guardar",
     "cancel": "Cancelar",
-    "language": "ES"
+    "language": "ES",
+    "logout": "Cerrar sesión",
+    "loggingOut": "Cerrando sesión…",
+    "notifications": "Notificaciones",
+    "markAllRead": "Marcar todas como leídas",
+    "noNotifications": "Todo al día — sin alertas pendientes.",
+    "operationalAlerts": "Alertas operativas",
+    "systemNotifications": "Notificaciones del sistema"
   },
   "auth": {
     "login": "Entrar",

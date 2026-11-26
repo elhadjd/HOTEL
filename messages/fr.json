@@ -43,7 +43,14 @@
     "comingSoon": "Module en construction — architecture prête",
     "save": "Enregistrer",
     "cancel": "Annuler",
-    "language": "FR"
+    "language": "FR",
+    "logout": "Déconnexion",
+    "loggingOut": "Déconnexion…",
+    "notifications": "Notifications",
+    "markAllRead": "Tout marquer comme lu",
+    "noNotifications": "Tout est à jour — aucune alerte en attente.",
+    "operationalAlerts": "Alertes opérationnelles",
+    "systemNotifications": "Notifications système"
   },
   "auth": {
     "login": "Connexion",
