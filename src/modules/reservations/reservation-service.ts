@@ -1,5 +1,9 @@
 import type { PrismaClient, ReservationStatus } from "@prisma/client";
-import { assertSameInstitution, type TenantContext } from "@/modules/tenancy/tenant";
+import {
+  assertPermission,
+  assertSameInstitution,
+  type TenantContext,
+} from "@/modules/tenancy/tenant";
 import { getHotel } from "@/modules/hotels/hotel-service";
 import {
   assertRoomAssignable,
@@ -9,6 +13,12 @@ import {
   syncRoomOccupancyStatus,
   toDateOnlyUtc,
 } from "./availability";
+import {
+  checkSameDayTurnaround,
+  DEFAULT_HOTEL_SCHEDULE,
+  evaluateReservationSchedule,
+  getHotelTodayUtc,
+} from "./schedule";
 
 export function assertReservationHotelPolicies(params: {
   nights: number;
@@ -81,8 +91,8 @@ export async function listReservations(
       rooms: { include: { room: { include: { category: true } } } },
       guests: { include: { guest: true } },
     },
-    orderBy: [{ arrivalDate: "asc" }, { createdAt: "desc" }],
-    take: 200,
+    orderBy: [{ arrivalDate: "desc" }, { createdAt: "desc" }],
+    take: 300,
   });
 }
 
@@ -94,7 +104,7 @@ export async function getReservation(
   const reservation = await prisma.reservation.findUnique({
     where: { id: reservationId },
     include: {
-      hotel: true,
+      hotel: { include: { settings: true } },
       rooms: { include: { room: { include: { category: true } } } },
       guests: { include: { guest: true } },
       events: { orderBy: { createdAt: "desc" }, take: 50 },
@@ -109,9 +119,12 @@ export async function createReservation(
   prisma: PrismaClient,
   ctx: TenantContext,
   input: {
-    hotelId: string;
+    hotelId?: string;
     arrivalDate: string | Date;
     departureDate: string | Date;
+    expectedCheckInTime?: string | null;
+    expectedCheckOutTime?: string | null;
+    allowRetroactive?: boolean;
     adults?: number;
     children?: number;
     source?: string;
@@ -121,10 +134,49 @@ export async function createReservation(
     status?: Extract<ReservationStatus, "DRAFT" | "PENDING" | "CONFIRMED">;
   },
 ) {
-  const hotel = await getHotel(prisma, ctx, input.hotelId);
+  let resolvedHotelId = input.hotelId;
+  if (!resolvedHotelId) {
+    const primaryHotel = await prisma.hotel.findFirst({
+      where: { institutionId: ctx.institutionId, active: true },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+    if (!primaryHotel) throw new Error("No active hotel configured for this account");
+    resolvedHotelId = primaryHotel.id;
+  }
+
+  const hotel = await getHotel(prisma, ctx, resolvedHotelId);
   const arrival = toDateOnlyUtc(input.arrivalDate);
   const departure = toDateOnlyUtc(input.departureDate);
   assertValidStayRange(arrival, departure);
+
+  const timezone = hotel.settings?.timezone ?? DEFAULT_HOTEL_SCHEDULE.timezone;
+  const hotelToday = getHotelTodayUtc(timezone);
+  const isPastArrival = arrival.getTime() < hotelToday.getTime();
+  if (isPastArrival) {
+    if (!input.allowRetroactive) {
+      throw new Error(
+        `Não é possível criar reserva com data de entrada no passado (${arrival.toISOString().slice(0, 10)}). Active a opção "Registo retroativo" se pretende lançar uma reserva histórica.`,
+      );
+    }
+    assertPermission(ctx, "reservations.retroactive");
+  }
+
+  const schedule = evaluateReservationSchedule({
+    expectedCheckInTime: input.expectedCheckInTime,
+    expectedCheckOutTime: input.expectedCheckOutTime,
+    policy: hotel.settings
+      ? {
+          checkInTime: hotel.settings.checkInTime,
+          checkOutTime: hotel.settings.checkOutTime,
+          earlyCheckInFrom: hotel.settings.earlyCheckInFrom,
+          lateCheckOutUntil: hotel.settings.lateCheckOutUntil,
+          housekeepingTurnaroundMinutes: hotel.settings.housekeepingTurnaroundMinutes,
+          noShowCutoffTime: hotel.settings.noShowCutoffTime,
+          timezone: hotel.settings.timezone,
+        }
+      : null,
+  });
 
   const adults = input.adults ?? 1;
   const children = input.children ?? 0;
@@ -133,7 +185,7 @@ export async function createReservation(
 
   const assignedRooms = roomIds.length
     ? await prisma.room.findMany({
-        where: { id: { in: roomIds }, hotelId: input.hotelId },
+        where: { id: { in: roomIds }, hotelId: resolvedHotelId },
         select: { id: true, code: true, categoryId: true, capacity: true },
       })
     : [];
@@ -162,7 +214,7 @@ export async function createReservation(
       !guest.customerMapping.externalCustomerId
     ) {
       throw new Error(
-        "Guest must have a valid SIGESC Central customer association before assignment to a reservation",
+        "O hóspede precisa de estar associado a um cliente no sistema central antes de ser vinculado a uma reserva.",
       );
     }
   }
@@ -189,7 +241,7 @@ export async function createReservation(
     for (const room of assignedRooms) {
       try {
         const quote = await quoteAccommodation(prisma, ctx, {
-          hotelId: input.hotelId,
+          hotelId: resolvedHotelId,
           categoryId: room.categoryId,
           arrivalDate: arrival,
           departureDate: departure,
@@ -228,22 +280,65 @@ export async function createReservation(
     for (const roomId of roomIds) {
       await assertRoomAssignable(tx, {
         roomId,
-        hotelId: input.hotelId,
+        hotelId: resolvedHotelId,
         arrival,
         departure,
       });
+    }
+
+    // Check same-day turnaround gap with departing reservations on the same room(s)
+    const turnaroundMinutes =
+      hotel.settings?.housekeepingTurnaroundMinutes ??
+      DEFAULT_HOTEL_SCHEDULE.housekeepingTurnaroundMinutes;
+    const turnaroundWarnings = [...schedule.warnings];
+
+    if (roomIds.length > 0) {
+      const sameDayDepartures = await tx.reservationRoom.findMany({
+        where: {
+          roomId: { in: roomIds },
+          departureDate: arrival,
+          reservation: {
+            status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] },
+          },
+        },
+        include: {
+          room: { select: { code: true } },
+          reservation: { select: { code: true, expectedCheckOutTime: true } },
+        },
+      });
+      for (const dep of sameDayDepartures) {
+        const depTime =
+          dep.reservation.expectedCheckOutTime ??
+          hotel.settings?.checkOutTime ??
+          DEFAULT_HOTEL_SCHEDULE.checkOutTime;
+        const check = checkSameDayTurnaround({
+          departingCheckOutTime: depTime,
+          arrivingCheckInTime: schedule.expectedCheckInTime,
+          turnaroundMinutes,
+        });
+        if (!check.ok) {
+          turnaroundWarnings.push(
+            `Quarto ${dep.room.code}: saída prevista de ${dep.reservation.code} às ${depTime} e entrada às ${schedule.expectedCheckInTime} (intervalo ${check.gapMinutes} min < ${check.requiredMinutes} min de limpeza).`,
+          );
+        }
+      }
     }
 
     const quoteByRoom = new Map(roomQuotes.map((q) => [q.roomId, q]));
 
     const reservation = await tx.reservation.create({
       data: {
-        hotelId: input.hotelId,
+        hotelId: resolvedHotelId,
         institutionId: ctx.institutionId,
         code: reservationCode(),
         status,
         arrivalDate: arrival,
         departureDate: departure,
+        expectedCheckInTime: schedule.expectedCheckInTime,
+        expectedCheckOutTime: schedule.expectedCheckOutTime,
+        earlyCheckInRequested: schedule.earlyCheckInRequested,
+        lateCheckOutRequested: schedule.lateCheckOutRequested,
+        isRetroactive: isPastArrival,
         adults,
         children,
         source: input.source ?? null,
@@ -267,9 +362,9 @@ export async function createReservation(
           create: {
             fromStatus: null,
             toStatus: status,
-            note: `Created with ${roomIds.length} room(s)${
-              operationalTotal != null ? `; quoted ${operationalTotal} ${quoteCurrency}` : ""
-            }`,
+            note: `Criada com ${roomIds.length} quarto(s) · Check-in ${schedule.expectedCheckInTime} / Check-out ${schedule.expectedCheckOutTime}${
+              isPastArrival ? " (registo retroativo)" : ""
+            }${operationalTotal != null ? `; cotação ${operationalTotal} ${quoteCurrency}` : ""}`,
             actorUserId: ctx.userId,
           },
         },
@@ -281,7 +376,7 @@ export async function createReservation(
     });
 
     for (const roomId of roomIds) {
-      await syncRoomOccupancyStatus(tx, roomId);
+      await syncRoomOccupancyStatus(tx, roomId, hotelToday);
     }
 
     await tx.auditLog.create({
@@ -294,13 +389,16 @@ export async function createReservation(
         metadata: {
           code: reservation.code,
           status,
+          expectedCheckInTime: schedule.expectedCheckInTime,
+          expectedCheckOutTime: schedule.expectedCheckOutTime,
+          isRetroactive: isPastArrival,
           operationalTotal,
           quotedServerSide: operationalTotal != null,
         },
       },
     });
 
-    return reservation;
+    return Object.assign(reservation, { scheduleWarnings: turnaroundWarnings });
   });
 }
 
@@ -474,4 +572,240 @@ export async function calendarReservations(
     },
     orderBy: { arrivalDate: "asc" },
   });
+}
+
+export async function markReservationNoShow(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+  reservationId: string,
+  note?: string,
+) {
+  const existing = await getReservation(prisma, ctx, reservationId);
+  if (!["DRAFT", "PENDING", "CONFIRMED"].includes(existing.status)) {
+    throw new Error("Apenas reservas pendentes ou confirmadas podem ser marcadas como No-Show.");
+  }
+
+  const timezone = existing.hotel.settings?.timezone ?? DEFAULT_HOTEL_SCHEDULE.timezone;
+  const hotelToday = getHotelTodayUtc(timezone);
+
+  return prisma.$transaction(async (tx) => {
+    const roomIds = existing.rooms.map((rr) => rr.roomId);
+    await lockRoomsForUpdate(tx, roomIds);
+
+    const updated = await tx.reservation.update({
+      where: { id: reservationId },
+      data: { status: "NO_SHOW" },
+      include: {
+        rooms: { include: { room: true } },
+        guests: { include: { guest: true } },
+      },
+    });
+
+    for (const roomId of roomIds) {
+      await syncRoomOccupancyStatus(tx, roomId, hotelToday);
+    }
+
+    await tx.reservationEvent.create({
+      data: {
+        reservationId,
+        fromStatus: existing.status,
+        toStatus: "NO_SHOW",
+        note: note?.trim() || "Hóspede não compareceu (No-Show) — quarto libertado.",
+        actorUserId: ctx.userId,
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        institutionId: ctx.institutionId,
+        actorUserId: ctx.userId,
+        action: "UPDATE",
+        entityType: "ReservationNoShow",
+        entityId: reservationId,
+        metadata: { code: existing.code, releasedRooms: roomIds.length },
+      },
+    });
+
+    return updated;
+  });
+}
+
+export async function rescheduleReservation(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+  reservationId: string,
+  input: {
+    arrivalDate?: string | Date;
+    departureDate?: string | Date;
+    expectedCheckInTime?: string | null;
+    expectedCheckOutTime?: string | null;
+    lateCheckOutApproved?: boolean;
+    allowRetroactive?: boolean;
+  },
+) {
+  const existing = await getReservation(prisma, ctx, reservationId);
+  if (["CANCELLED", "CHECKED_OUT", "NO_SHOW"].includes(existing.status)) {
+    throw new Error("Não é possível alterar datas ou horários de uma reserva encerrada.");
+  }
+
+  const nextArrival = input.arrivalDate ? toDateOnlyUtc(input.arrivalDate) : existing.arrivalDate;
+  const nextDeparture = input.departureDate
+    ? toDateOnlyUtc(input.departureDate)
+    : existing.departureDate;
+  assertValidStayRange(nextArrival, nextDeparture);
+
+  const timezone = existing.hotel.settings?.timezone ?? DEFAULT_HOTEL_SCHEDULE.timezone;
+  const hotelToday = getHotelTodayUtc(timezone);
+  const datesChanged =
+    nextArrival.getTime() !== existing.arrivalDate.getTime() ||
+    nextDeparture.getTime() !== existing.departureDate.getTime();
+
+  if (datesChanged && existing.status === "CHECKED_IN") {
+    throw new Error("Para alterar a saída de uma estadia em curso, utilize a extensão de estadia.");
+  }
+
+  if (datesChanged && nextArrival.getTime() < hotelToday.getTime()) {
+    if (!input.allowRetroactive) {
+      throw new Error(
+        `A nova data de entrada (${nextArrival.toISOString().slice(0, 10)}) está no passado.`,
+      );
+    }
+    assertPermission(ctx, "reservations.retroactive");
+  }
+
+  const schedule = evaluateReservationSchedule({
+    expectedCheckInTime: input.expectedCheckInTime ?? existing.expectedCheckInTime,
+    expectedCheckOutTime: input.expectedCheckOutTime ?? existing.expectedCheckOutTime,
+    policy: existing.hotel.settings
+      ? {
+          checkInTime: existing.hotel.settings.checkInTime,
+          checkOutTime: existing.hotel.settings.checkOutTime,
+          earlyCheckInFrom: existing.hotel.settings.earlyCheckInFrom,
+          lateCheckOutUntil: existing.hotel.settings.lateCheckOutUntil,
+          housekeepingTurnaroundMinutes:
+            existing.hotel.settings.housekeepingTurnaroundMinutes,
+          noShowCutoffTime: existing.hotel.settings.noShowCutoffTime,
+          timezone: existing.hotel.settings.timezone,
+        }
+      : null,
+  });
+
+  return prisma.$transaction(async (tx) => {
+    const roomIds = existing.rooms.map((rr) => rr.roomId);
+    await lockRoomsForUpdate(tx, roomIds);
+
+    if (datesChanged) {
+      for (const roomId of roomIds) {
+        await assertRoomAssignable(tx, {
+          roomId,
+          hotelId: existing.hotelId,
+          arrival: nextArrival,
+          departure: nextDeparture,
+          excludeReservationId: existing.id,
+        });
+      }
+      await tx.reservationRoom.updateMany({
+        where: { reservationId: existing.id },
+        data: { arrivalDate: nextArrival, departureDate: nextDeparture },
+      });
+    }
+
+    const updated = await tx.reservation.update({
+      where: { id: existing.id },
+      data: {
+        arrivalDate: nextArrival,
+        departureDate: nextDeparture,
+        expectedCheckInTime: schedule.expectedCheckInTime,
+        expectedCheckOutTime: schedule.expectedCheckOutTime,
+        earlyCheckInRequested: schedule.earlyCheckInRequested,
+        lateCheckOutRequested: schedule.lateCheckOutRequested,
+        ...(input.lateCheckOutApproved !== undefined
+          ? { lateCheckOutApproved: input.lateCheckOutApproved }
+          : {}),
+      },
+      include: {
+        rooms: { include: { room: true } },
+        guests: { include: { guest: true } },
+      },
+    });
+
+    for (const roomId of roomIds) {
+      await syncRoomOccupancyStatus(tx, roomId, hotelToday);
+    }
+
+    await tx.reservationEvent.create({
+      data: {
+        reservationId: existing.id,
+        fromStatus: existing.status,
+        toStatus: existing.status,
+        note: `Horário/Datas actualizados: ${nextArrival.toISOString().slice(0, 10)} (${schedule.expectedCheckInTime}) → ${nextDeparture.toISOString().slice(0, 10)} (${schedule.expectedCheckOutTime})`,
+        actorUserId: ctx.userId,
+      },
+    });
+
+    return Object.assign(updated, { scheduleWarnings: schedule.warnings });
+  });
+}
+
+/**
+ * Reconciles physical Room.occupancyStatus across all active hotel rooms using
+ * the hotel's real local date, releasing any stale RESERVED rooms left behind
+ * by past/expired reservations, and optionally auto-marking expired bookings as NO_SHOW.
+ */
+export async function reconcileHotelRoomOccupancies(
+  prisma: PrismaClient,
+  ctx: TenantContext,
+  options?: { hotelId?: string; markExpiredAsNoShow?: boolean },
+) {
+  const hotels = options?.hotelId
+    ? [await getHotel(prisma, ctx, options.hotelId)]
+    : await prisma.hotel.findMany({
+        where: { institutionId: ctx.institutionId, active: true },
+        include: { settings: true },
+      });
+
+  let roomsChecked = 0;
+  let roomsReleased = 0;
+  let expiredMarkedNoShow = 0;
+
+  for (const hotel of hotels) {
+    const timezone = hotel.settings?.timezone ?? DEFAULT_HOTEL_SCHEDULE.timezone;
+    const hotelToday = getHotelTodayUtc(timezone);
+
+    if (options?.markExpiredAsNoShow) {
+      const expired = await prisma.reservation.findMany({
+        where: {
+          institutionId: ctx.institutionId,
+          hotelId: hotel.id,
+          status: { in: ["PENDING", "CONFIRMED"] },
+          departureDate: { lte: hotelToday },
+        },
+        select: { id: true },
+      });
+      for (const r of expired) {
+        await markReservationNoShow(
+          prisma,
+          ctx,
+          r.id,
+          "Marcado automaticamente como No-Show (data de saída expirada).",
+        );
+        expiredMarkedNoShow += 1;
+      }
+    }
+
+    const rooms = await prisma.room.findMany({
+      where: { hotelId: hotel.id, active: true },
+      select: { id: true, occupancyStatus: true },
+    });
+
+    for (const room of rooms) {
+      roomsChecked += 1;
+      const nextStatus = await syncRoomOccupancyStatus(prisma, room.id, hotelToday);
+      if (room.occupancyStatus === "RESERVED" && nextStatus === "AVAILABLE") {
+        roomsReleased += 1;
+      }
+    }
+  }
+
+  return { roomsChecked, roomsReleased, expiredMarkedNoShow };
 }

@@ -10,6 +10,10 @@ type HotelRow = {
   settings: {
     checkInTime: string;
     checkOutTime: string;
+    earlyCheckInFrom?: string;
+    lateCheckOutUntil?: string;
+    housekeepingTurnaroundMinutes?: number;
+    noShowCutoffTime?: string;
     timezone: string;
     currency: string;
     locale: string;
@@ -127,8 +131,8 @@ export function SettingsClient({
       <div>
         <h1 className="text-3xl font-semibold text-ink-900">Configurações</h1>
         <p className="font-ui mt-1 max-w-2xl text-sm text-stone-500">
-          Perfil da instituição e horários por hotel. Credenciais Aggregate não são editáveis
-          aqui — use a integração SIGESC.
+          Perfil da instituição e políticas de horários do hotel (check-in, check-out, tempo de
+          rotação de limpeza e corte de no-show).
         </p>
       </div>
 
@@ -153,7 +157,7 @@ export function SettingsClient({
               ["country", "País"],
               ["timezone", "Fuso"],
               ["currency", "Moeda"],
-              ["locale", "Locale"],
+              ["locale", "Idioma"],
             ] as const
           ).map(([key, label]) => (
             <label key={key} className="font-ui block text-xs text-stone-500">
@@ -168,8 +172,8 @@ export function SettingsClient({
           ))}
         </div>
         {settings.sigescCompanyRef ? (
-          <p className="font-ui text-xs text-stone-400">
-            SIGESC company ref: {settings.sigescCompanyRef}
+          <p className="font-mono text-xs text-stone-400">
+            Referência da empresa central: {settings.sigescCompanyRef}
           </p>
         ) : null}
         {!readOnly ? (
@@ -180,10 +184,10 @@ export function SettingsClient({
       </section>
 
       <section className="surface space-y-3 p-5">
-        <h2 className="text-lg font-medium">Ligação Aggregate</h2>
+        <h2 className="text-lg font-medium">Ligação ao Sistema Central</h2>
         {settings.aggregateConnection ? (
           <div className="font-ui text-sm text-stone-600">
-            <p>
+            <p className="font-mono text-xs">
               {settings.aggregateConnection.host} · {settings.aggregateConnection.keyPrefix}… ·{" "}
               {settings.aggregateConnection.status}
             </p>
@@ -192,12 +196,12 @@ export function SettingsClient({
             ) : null}
           </div>
         ) : (
-          <p className="font-ui text-sm text-stone-500">Sem ligação Aggregate configurada.</p>
+          <p className="font-ui text-sm text-stone-500">Sem ligação central configurada.</p>
         )}
       </section>
 
       <section className="space-y-4">
-        <h2 className="text-lg font-medium">Hotéis</h2>
+        <h2 className="text-lg font-medium">Horários e Políticas do Hotel</h2>
         {settings.hotels.map((hotel) => (
           <HotelSettingsCard
             key={hotel.id}
@@ -226,6 +230,10 @@ function HotelSettingsCard({
   const [form, setForm] = useState({
     checkInTime: hotel.settings?.checkInTime ?? "14:00",
     checkOutTime: hotel.settings?.checkOutTime ?? "12:00",
+    earlyCheckInFrom: hotel.settings?.earlyCheckInFrom ?? "10:00",
+    lateCheckOutUntil: hotel.settings?.lateCheckOutUntil ?? "18:00",
+    housekeepingTurnaroundMinutes: String(hotel.settings?.housekeepingTurnaroundMinutes ?? 60),
+    noShowCutoffTime: hotel.settings?.noShowCutoffTime ?? "23:59",
     timezone: hotel.settings?.timezone ?? "Africa/Luanda",
     currency: hotel.settings?.currency ?? "AOA",
     locale: hotel.settings?.locale ?? "pt",
@@ -234,28 +242,74 @@ function HotelSettingsCard({
   });
 
   return (
-    <div className="surface space-y-3 p-5">
+    <div className="surface space-y-4 p-5">
       <p className="font-medium text-ink-900">
         {hotel.name}{" "}
-        <span className="font-ui text-sm text-stone-500">({hotel.code})</span>
+        <span className="font-mono text-xs text-stone-500">({hotel.code})</span>
       </p>
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="font-ui text-xs text-stone-500">
-          Check-in
+          Check-in padrão
           <input
-            className="mt-1 h-10 w-full rounded-md border border-sand-200 px-3 text-sm"
+            type="time"
+            className="mt-1 h-10 w-full rounded-md border border-sand-200 px-3 font-mono text-sm"
             value={form.checkInTime}
             disabled={readOnly}
             onChange={(e) => setForm((f) => ({ ...f, checkInTime: e.target.value }))}
           />
         </label>
         <label className="font-ui text-xs text-stone-500">
-          Check-out
+          Check-out padrão
           <input
-            className="mt-1 h-10 w-full rounded-md border border-sand-200 px-3 text-sm"
+            type="time"
+            className="mt-1 h-10 w-full rounded-md border border-sand-200 px-3 font-mono text-sm"
             value={form.checkOutTime}
             disabled={readOnly}
             onChange={(e) => setForm((f) => ({ ...f, checkOutTime: e.target.value }))}
+          />
+        </label>
+        <label className="font-ui text-xs text-stone-500">
+          Early check-in desde
+          <input
+            type="time"
+            className="mt-1 h-10 w-full rounded-md border border-sand-200 px-3 font-mono text-sm"
+            value={form.earlyCheckInFrom}
+            disabled={readOnly}
+            onChange={(e) => setForm((f) => ({ ...f, earlyCheckInFrom: e.target.value }))}
+          />
+        </label>
+        <label className="font-ui text-xs text-stone-500">
+          Late check-out até
+          <input
+            type="time"
+            className="mt-1 h-10 w-full rounded-md border border-sand-200 px-3 font-mono text-sm"
+            value={form.lateCheckOutUntil}
+            disabled={readOnly}
+            onChange={(e) => setForm((f) => ({ ...f, lateCheckOutUntil: e.target.value }))}
+          />
+        </label>
+        <label className="font-ui text-xs text-stone-500">
+          Tempo limpeza entre hóspedes (min)
+          <input
+            type="number"
+            min={0}
+            max={480}
+            className="mt-1 h-10 w-full rounded-md border border-sand-200 px-3 text-sm tabular-nums"
+            value={form.housekeepingTurnaroundMinutes}
+            disabled={readOnly}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, housekeepingTurnaroundMinutes: e.target.value }))
+            }
+          />
+        </label>
+        <label className="font-ui text-xs text-stone-500">
+          Corte para No-Show
+          <input
+            type="time"
+            className="mt-1 h-10 w-full rounded-md border border-sand-200 px-3 font-mono text-sm"
+            value={form.noShowCutoffTime}
+            disabled={readOnly}
+            onChange={(e) => setForm((f) => ({ ...f, noShowCutoffTime: e.target.value }))}
           />
         </label>
         <label className="font-ui text-xs text-stone-500">
@@ -263,7 +317,7 @@ function HotelSettingsCard({
           <input
             type="number"
             min={1}
-            className="mt-1 h-10 w-full rounded-md border border-sand-200 px-3 text-sm"
+            className="mt-1 h-10 w-full rounded-md border border-sand-200 px-3 text-sm tabular-nums"
             value={form.maxStayNights}
             disabled={readOnly}
             onChange={(e) => setForm((f) => ({ ...f, maxStayNights: e.target.value }))}
@@ -276,6 +330,7 @@ function HotelSettingsCard({
           checked={form.allowChildren}
           disabled={readOnly}
           onChange={(e) => setForm((f) => ({ ...f, allowChildren: e.target.checked }))}
+          className="h-4 w-4 accent-teal-600"
         />
         Permitir crianças
       </label>
@@ -288,6 +343,10 @@ function HotelSettingsCard({
             onSave(hotel, {
               checkInTime: form.checkInTime,
               checkOutTime: form.checkOutTime,
+              earlyCheckInFrom: form.earlyCheckInFrom,
+              lateCheckOutUntil: form.lateCheckOutUntil,
+              housekeepingTurnaroundMinutes: Number(form.housekeepingTurnaroundMinutes) || 60,
+              noShowCutoffTime: form.noShowCutoffTime,
               timezone: form.timezone,
               currency: form.currency,
               locale: form.locale,
@@ -296,7 +355,7 @@ function HotelSettingsCard({
             })
           }
         >
-          Guardar hotel
+          Guardar políticas de horário
         </Button>
       ) : null}
     </div>

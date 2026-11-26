@@ -85,6 +85,10 @@ export async function updateHotelSettings(
   input: {
     checkInTime?: string;
     checkOutTime?: string;
+    earlyCheckInFrom?: string;
+    lateCheckOutUntil?: string;
+    housekeepingTurnaroundMinutes?: number;
+    noShowCutoffTime?: string;
     timezone?: string;
     currency?: string;
     locale?: string;
@@ -102,6 +106,10 @@ export async function updateHotelSettings(
       hotelId,
       checkInTime: input.checkInTime ?? "14:00",
       checkOutTime: input.checkOutTime ?? "12:00",
+      earlyCheckInFrom: input.earlyCheckInFrom ?? "10:00",
+      lateCheckOutUntil: input.lateCheckOutUntil ?? "18:00",
+      housekeepingTurnaroundMinutes: input.housekeepingTurnaroundMinutes ?? 60,
+      noShowCutoffTime: input.noShowCutoffTime ?? "23:59",
       timezone: input.timezone ?? "Africa/Luanda",
       currency: input.currency ?? "AOA",
       locale: input.locale ?? "pt",
@@ -111,6 +119,12 @@ export async function updateHotelSettings(
     update: {
       ...(input.checkInTime != null ? { checkInTime: input.checkInTime } : {}),
       ...(input.checkOutTime != null ? { checkOutTime: input.checkOutTime } : {}),
+      ...(input.earlyCheckInFrom != null ? { earlyCheckInFrom: input.earlyCheckInFrom } : {}),
+      ...(input.lateCheckOutUntil != null ? { lateCheckOutUntil: input.lateCheckOutUntil } : {}),
+      ...(input.housekeepingTurnaroundMinutes != null
+        ? { housekeepingTurnaroundMinutes: input.housekeepingTurnaroundMinutes }
+        : {}),
+      ...(input.noShowCutoffTime != null ? { noShowCutoffTime: input.noShowCutoffTime } : {}),
       ...(input.timezone != null ? { timezone: input.timezone } : {}),
       ...(input.currency != null ? { currency: input.currency } : {}),
       ...(input.locale != null ? { locale: input.locale } : {}),

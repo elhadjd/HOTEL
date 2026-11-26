@@ -9,10 +9,15 @@ import {
 } from "@/modules/reservations/reservation-service";
 import { toDateOnlyUtc } from "@/modules/reservations/availability";
 
+const HHMM_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
 const createSchema = z.object({
-  hotelId: z.string().uuid(),
+  hotelId: z.string().uuid().optional(),
   arrivalDate: z.string().min(8),
   departureDate: z.string().min(8),
+  expectedCheckInTime: z.string().regex(HHMM_REGEX).optional().nullable(),
+  expectedCheckOutTime: z.string().regex(HHMM_REGEX).optional().nullable(),
+  allowRetroactive: z.boolean().optional(),
   adults: z.number().int().positive().optional(),
   children: z.number().int().min(0).optional(),
   source: z.string().max(64).optional(),
@@ -60,7 +65,10 @@ export async function POST(request: Request) {
   }
   const parsed = createSchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid reservation payload" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Dados da reserva inválidos", details: parsed.error.flatten().fieldErrors },
+      { status: 400 },
+    );
   }
 
   try {
@@ -72,7 +80,13 @@ export async function POST(request: Request) {
       arrivalDate: toDateOnlyUtc(parsed.data.arrivalDate),
       departureDate: toDateOnlyUtc(parsed.data.departureDate),
     });
-    return NextResponse.json({ reservation }, { status: 201 });
+    return NextResponse.json(
+      {
+        reservation,
+        scheduleWarnings: reservation.scheduleWarnings ?? [],
+      },
+      { status: 201 },
+    );
   } catch (err) {
     return jsonError(err);
   }

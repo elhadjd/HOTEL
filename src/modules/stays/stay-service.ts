@@ -26,7 +26,11 @@ export async function listArrivals(
     where: {
       institutionId: ctx.institutionId,
       status: { in: ["CONFIRMED", "PENDING", "CHECKED_IN"] },
-      arrivalDate: { gte: day, lt: next },
+      // Today's arrivals OR late arrivals whose departure is still strictly in the future
+      OR: [
+        { arrivalDate: { gte: day, lt: next } },
+        { arrivalDate: { lt: day }, departureDate: { gt: day } },
+      ],
       ...(filters?.hotelId ? { hotelId: filters.hotelId } : {}),
     },
     include: {
@@ -39,7 +43,7 @@ export async function listArrivals(
       },
       stays: { select: { id: true, roomId: true, status: true } },
     },
-    orderBy: { arrivalDate: "asc" },
+    orderBy: [{ arrivalDate: "asc" }, { expectedCheckInTime: "asc" }],
     take: 200,
   });
 
