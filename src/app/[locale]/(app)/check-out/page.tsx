@@ -26,6 +26,7 @@ export default async function CheckOutPage({
       <CheckOutClient
         initialDepartures={JSON.parse(JSON.stringify(departures))}
         focusStayId={query.stayId}
+        canSettleInvoices={ctx.permissions.includes("integrations.invoices.settle")}
       />
     </AppShell>
   );

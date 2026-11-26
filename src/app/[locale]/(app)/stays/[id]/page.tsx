@@ -181,14 +181,18 @@ export default async function StayDetailPage({
               id: inv.id,
               externalId: inv.externalId,
               saleKey: inv.saleKey,
+              orderReference: inv.orderReference,
               status: inv.status,
               centralState: inv.centralState,
               centralTotal: inv.centralTotal != null ? Number(inv.centralTotal) : null,
+              centralRestPayable:
+                inv.centralRestPayable != null ? Number(inv.centralRestPayable) : null,
               currency: inv.currency,
               updatedAt: inv.updatedAt,
             })),
           ),
         )}
+        canSettleInvoices={ctx.permissions.includes("integrations.invoices.settle")}
         eligibleInvoiceId={eligibleInvoice?.id ?? null}
         unbilledMappedLines={unbilledMappedLines}
         availableRooms={availableRooms}

@@ -6,6 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select";
+import { InvoiceSettlementActions } from "@/components/invoices/invoice-settlement-actions";
+import type { AggregateSalePayment } from "@/modules/sigesc-integration/types";
 
 type InvoiceDetail = {
   id: string;
@@ -13,10 +15,12 @@ type InvoiceDetail = {
   requestedState: string;
   status: string;
   saleKey: string | null;
+  orderReference: string | null;
   centralState: string | null;
   centralTotal: number | null;
   centralSubtotal: number | null;
   centralTax: number | null;
+  centralRestPayable: number | null;
   currency: string;
   lastError: string | null;
   notes: string | null;
@@ -35,6 +39,7 @@ type InvoiceDetail = {
     centralName?: string | null;
     localCode?: string | null;
   }>;
+  payments: AggregateSalePayment[];
   attempts: Array<{
     id: string;
     attemptNo: number;
@@ -58,9 +63,11 @@ function makeClientIdempotencyKey(prefix: string): string {
 export function InvoiceDetailClient({
   invoice: initial,
   mappings,
+  canSettle = false,
 }: {
   invoice: InvoiceDetail;
   mappings: Array<SearchableOption & { unitPriceHint?: number | null }>;
+  canSettle?: boolean;
 }) {
   const router = useRouter();
   const [invoice, setInvoice] = useState(initial);
@@ -83,6 +90,18 @@ export function InvoiceDetailClient({
   const submittable = ["DRAFT", "PENDING_SUBMISSION", "FAILED_VALIDATION"].includes(
     invoice.status,
   );
+
+  const paidTotal = useMemo(() => {
+    if (invoice.payments.length > 0) {
+      return Number(
+        invoice.payments.reduce((acc, p) => acc + Number(p.amount ?? 0), 0).toFixed(2),
+      );
+    }
+    if (invoice.centralTotal != null && invoice.centralRestPayable != null) {
+      return Number(Math.max(0, invoice.centralTotal - invoice.centralRestPayable).toFixed(2));
+    }
+    return 0;
+  }, [invoice.payments, invoice.centralTotal, invoice.centralRestPayable]);
 
   const localSummary = useMemo(() => {
     let subtotal = 0;
@@ -143,12 +162,12 @@ export function InvoiceDetailClient({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? `${path} failed`);
-        if (data.invoice) setInvoice((prev) => ({ ...prev, ...normalizeInvoice(data.invoice, prev) }));
+        if (data.invoice) setInvoice((prev) => ({ ...prev, ...normalizeInvoice(data.invoice, prev, data.payments) }));
         router.refresh();
         return;
       }
       if (data.invoice) {
-        setInvoice((prev) => ({ ...prev, ...normalizeInvoice(data.invoice, prev) }));
+        setInvoice((prev) => ({ ...prev, ...normalizeInvoice(data.invoice, prev, data.payments) }));
       }
       if (data.reconciliationRequired || data.invoice?.status === "RECONCILIATION_REQUIRED") {
         setError(
@@ -198,12 +217,12 @@ export function InvoiceDetailClient({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Falha ao adicionar produtos");
-        if (data.invoice) setInvoice((prev) => ({ ...prev, ...normalizeInvoice(data.invoice, prev) }));
+        if (data.invoice) setInvoice((prev) => ({ ...prev, ...normalizeInvoice(data.invoice, prev, data.payments) }));
         router.refresh();
         return;
       }
       pendingAppendKey.current = null;
-      if (data.invoice) setInvoice((prev) => ({ ...prev, ...normalizeInvoice(data.invoice, prev) }));
+      if (data.invoice) setInvoice((prev) => ({ ...prev, ...normalizeInvoice(data.invoice, prev, data.payments) }));
       setMessage("Produtos adicionados no documento central. Totais = resposta Aggregate.");
       setProductPick("");
       setQty("1");
@@ -219,8 +238,11 @@ export function InvoiceDetailClient({
           <Link href="/integrations/invoices" className="font-ui text-sm text-teal-700 hover:underline">
             ← Voltar à lista
           </Link>
-          <h1 className="mt-2 text-3xl font-semibold text-ink-900">{invoice.externalId}</h1>
+          <h1 className="mt-2 text-3xl font-semibold text-ink-900">
+            {invoice.orderReference || invoice.externalId}
+          </h1>
           <p className="font-ui mt-1 text-sm text-stone-500">
+            {invoice.orderReference ? `${invoice.externalId} · ` : ""}
             {invoice.saleKey ?? "Ainda sem sale_key central"}
           </p>
           <div className="mt-3 flex flex-wrap gap-1">
@@ -256,6 +278,24 @@ export function InvoiceDetailClient({
       {error ? <p className="font-ui text-sm text-danger">{error}</p> : null}
       {message ? <p className="font-ui text-sm text-teal-800">{message}</p> : null}
 
+      <InvoiceSettlementActions
+        canSettle={canSettle}
+        invoice={{
+          id: invoice.id,
+          externalId: invoice.externalId,
+          saleKey: invoice.saleKey,
+          orderReference: invoice.orderReference,
+          status: invoice.status,
+          centralState: invoice.centralState,
+          centralTotal: invoice.centralTotal,
+          centralRestPayable: invoice.centralRestPayable,
+          currency: invoice.currency,
+        }}
+        onUpdated={({ invoice: inc, payments }) => {
+          setInvoice((prev) => ({ ...prev, ...normalizeInvoice(inc, prev, payments) }));
+        }}
+      />
+
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="surface p-5 lg:col-span-2">
           <h2 className="text-lg font-semibold text-ink-900">Contexto operacional</h2>
@@ -270,7 +310,15 @@ export function InvoiceDetailClient({
             </div>
             <div>
               <dt className="text-stone-500">Estadia</dt>
-              <dd className="font-medium text-ink-900">{invoice.stayId ?? "—"}</dd>
+              <dd className="font-medium text-ink-900">
+                {invoice.stayId ? (
+                  <Link href={`/stays/${invoice.stayId}`} className="text-teal-700 underline">
+                    {invoice.stayId}
+                  </Link>
+                ) : (
+                  "—"
+                )}
+              </dd>
             </div>
             <div>
               <dt className="text-stone-500">Reserva</dt>
@@ -299,6 +347,14 @@ export function InvoiceDetailClient({
             <div className="flex justify-between text-base font-semibold">
               <dt>Total central</dt>
               <dd>{money(invoice.centralTotal, invoice.currency)}</dd>
+            </div>
+            <div className="flex justify-between text-teal-800">
+              <dt>Total pago</dt>
+              <dd>{money(paidTotal, invoice.currency)}</dd>
+            </div>
+            <div className="flex justify-between font-semibold text-ink-900">
+              <dt>Por liquidar</dt>
+              <dd>{money(invoice.centralRestPayable, invoice.currency)}</dd>
             </div>
             <div className="border-t border-sand-200 pt-2 text-xs text-stone-500">
               Estimativa linhas locais: {money(localSummary.total, invoice.currency)}
@@ -354,14 +410,46 @@ export function InvoiceDetailClient({
         </table>
       </div>
 
+      {invoice.payments.length > 0 ? (
+        <div className="surface overflow-hidden">
+          <div className="border-b border-sand-200 px-5 py-4">
+            <h2 className="text-lg font-semibold text-ink-900">Pagamentos / Recibos SIGESC</h2>
+            <p className="font-ui mt-1 text-xs text-stone-500">
+              Recibos oficiais registados no SIGESC Central para este documento.
+            </p>
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Recibo</th>
+                <th>Data</th>
+                <th>Método</th>
+                <th>Observações</th>
+                <th>Valor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoice.payments.map((p, idx) => (
+                <tr key={`${p.id ?? p.number ?? idx}`}>
+                  <td className="font-medium">{p.number ?? `#${p.id ?? idx + 1}`}</td>
+                  <td>{p.date ?? "—"}</td>
+                  <td>{p.method?.name ?? "—"}</td>
+                  <td>{p.notes ?? "—"}</td>
+                  <td className="font-medium">{money(p.amount, invoice.currency)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
       {editable ? (
         <form onSubmit={addItems} className="surface p-5">
           <h2 className="text-lg font-semibold text-ink-900">Adicionar produtos</h2>
           <p className="font-ui mt-1 text-sm text-stone-500">
             Actualiza o mesmo documento central ({invoice.centralState}). Publicado/Pago bloqueiam
             mutações no servidor após verificação do estado actual. Cada pedido leva uma chave de
-            idempotência local; retries com a mesma chave não voltam a chamar Aggregate se
-            ADD_ITEMS_OK já existir.
+            idempotência verificada localmente e no SIGESC.
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-[1.5fr_0.5fr_0.5fr_auto]">
             <SearchableSelect
@@ -403,7 +491,7 @@ export function InvoiceDetailClient({
           <p className="font-ui text-sm text-stone-600">
             {invoice.status !== "CREATED"
               ? "Submeta o rascunho ao SIGESC antes de acrescentar produtos ao documento central."
-              : `Documento central em estado "${invoice.centralState ?? "desconhecido"}" — edição financeira bloqueada.`}
+              : `Documento central em estado "${invoice.centralState ?? "desconhecido"}" — adição de linhas bloqueada.`}
           </p>
         </div>
       )}
@@ -437,12 +525,17 @@ export function InvoiceDetailClient({
 function normalizeInvoice(
   incoming: Record<string, unknown>,
   prev: InvoiceDetail,
+  payments?: AggregateSalePayment[],
 ): Partial<InvoiceDetail> {
   return {
     ...prev,
     id: String(incoming.id ?? prev.id),
     status: String(incoming.status ?? prev.status),
     saleKey: "saleKey" in incoming ? (incoming.saleKey as string | null) : prev.saleKey,
+    orderReference:
+      "orderReference" in incoming
+        ? (incoming.orderReference as string | null)
+        : prev.orderReference,
     centralState:
       "centralState" in incoming ? (incoming.centralState as string | null) : prev.centralState,
     centralTotal:
@@ -450,6 +543,11 @@ function normalizeInvoice(
     centralSubtotal:
       incoming.centralSubtotal != null ? Number(incoming.centralSubtotal) : prev.centralSubtotal,
     centralTax: incoming.centralTax != null ? Number(incoming.centralTax) : prev.centralTax,
+    centralRestPayable:
+      incoming.centralRestPayable != null
+        ? Number(incoming.centralRestPayable)
+        : prev.centralRestPayable,
     lastError: "lastError" in incoming ? (incoming.lastError as string | null) : prev.lastError,
+    ...(Array.isArray(payments) ? { payments } : {}),
   };
 }

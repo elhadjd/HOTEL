@@ -6,6 +6,10 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { EmptyState } from "@/components/ui/empty-state";
+import {
+  InvoiceSettlementActions,
+  type SettleableInvoiceSummary,
+} from "@/components/invoices/invoice-settlement-actions";
 
 type Departure = {
   id: string;
@@ -30,9 +34,11 @@ type Departure = {
 export function CheckOutClient({
   initialDepartures,
   focusStayId,
+  canSettleInvoices = false,
 }: {
   initialDepartures: Departure[];
   focusStayId?: string;
+  canSettleInvoices?: boolean;
 }) {
   const router = useRouter();
   const [scope, setScope] = useState<"overdue" | "today" | "all">("overdue");
@@ -50,20 +56,13 @@ export function CheckOutClient({
     unbilledMappedChargeCount?: number;
     hasLinkedCustomer?: boolean;
   } | null>(null);
-  const [eligibleInvoice, setEligibleInvoice] = useState<{
-    id: string;
-    externalId: string;
-    saleKey: string | null;
-    status: string;
-    centralState: string | null;
-    centralTotal: number | null;
-    currency: string;
-  } | null>(null);
+  const [eligibleInvoice, setEligibleInvoice] = useState<SettleableInvoiceSummary | null>(null);
   const [suggestedLines, setSuggestedLines] = useState<
     Array<{ mappingLocalCode: string; label: string; quantity: number }>
   >([]);
   const [requestProforma, setRequestProforma] = useState(true);
   const [resultInvoiceId, setResultInvoiceId] = useState<string | null>(null);
+  const [resultInvoice, setResultInvoice] = useState<SettleableInvoiceSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -128,6 +127,7 @@ export function CheckOutClient({
     setError(null);
     setMessage(null);
     setResultInvoiceId(null);
+    setResultInvoice(null);
     startTransition(async () => {
       const shouldRequestProforma =
         requestProforma && (suggestedLines.length > 0 || Boolean(eligibleInvoice));
@@ -152,6 +152,7 @@ export function CheckOutClient({
         return;
       }
       setResultInvoiceId(data.invoiceId ?? eligibleInvoice?.id ?? null);
+      setResultInvoice(data.invoice ?? eligibleInvoice ?? null);
       if (data.handoff === "RECONCILIATION_PENDING" || data.handoff === "PENDING") {
         setError(
           data.message ??
@@ -161,7 +162,7 @@ export function CheckOutClient({
       }
       setMessage(
         data.handoff === "CENTRAL_CONFIRMED"
-          ? "Check-out concluído com Proforma/documento confirmado no SIGESC. Quarto segue para limpeza/inspecção."
+          ? "Check-out concluído com Proforma/documento confirmado no SIGESC. Pode publicar e liquidar a fatura abaixo sem sair da recepção."
           : `Check-out operacional concluído (handoff ${data.handoff ?? "NOT_REQUIRED"}). Quarto segue para limpeza/inspecção.`,
       );
       setStep(3);
@@ -180,7 +181,7 @@ export function CheckOutClient({
           <h1 className="mt-1 text-3xl font-semibold text-ink-900">Check-out guiado</h1>
           <p className="font-ui mt-1 max-w-2xl text-sm text-stone-600">
             Alterne entre partidas do dia/em atraso ou todas as estadias activas (para saídas
-            antecipadas). Pode emitir ou actualizar Proforma no SIGESC antes de encerrar o quarto.
+            antecipadas). Pode emitir, publicar e liquidar a fatura no SIGESC directamente aqui.
           </p>
         </div>
         <div className="font-ui flex flex-wrap gap-2 text-xs">
@@ -315,7 +316,8 @@ export function CheckOutClient({
                     href={`/integrations/invoices/${eligibleInvoice.id}`}
                     className="text-teal-700 underline"
                   >
-                    {eligibleInvoice.externalId} · {eligibleInvoice.centralState ?? eligibleInvoice.status}
+                    {eligibleInvoice.orderReference ?? eligibleInvoice.externalId} ·{" "}
+                    {eligibleInvoice.centralState ?? eligibleInvoice.status}
                   </Link>
                 ) : (
                   "Nenhum documento criado ainda"
@@ -346,9 +348,46 @@ export function CheckOutClient({
             </p>
           )}
 
+          {eligibleInvoice && suggestedLines.length === 0 ? (
+            <div className="mt-4">
+              <InvoiceSettlementActions
+                compact
+                canSettle={canSettleInvoices}
+                invoice={eligibleInvoice}
+                onUpdated={({ invoice: inc }) => {
+                  setEligibleInvoice((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          status: String(inc.status ?? prev.status),
+                          orderReference:
+                            "orderReference" in inc
+                              ? (inc.orderReference as string | null)
+                              : prev.orderReference,
+                          centralState:
+                            "centralState" in inc
+                              ? (inc.centralState as string | null)
+                              : prev.centralState,
+                          centralTotal:
+                            inc.centralTotal != null
+                              ? Number(inc.centralTotal)
+                              : prev.centralTotal,
+                          centralRestPayable:
+                            inc.centralRestPayable != null
+                              ? Number(inc.centralRestPayable)
+                              : prev.centralRestPayable,
+                        }
+                      : prev,
+                  );
+                }}
+              />
+            </div>
+          ) : null}
+
           <p className="font-ui mt-3 text-xs text-stone-500">
             Confirmação explícita necessária. O turnover do quarto (DIRTY + tarefa) é feito
-            atomicamente; publicação e pagamento ocorrem apenas no SIGESC.
+            atomicamente; após confirmar, pode publicar e liquidar a fatura no SIGESC no passo
+            seguinte.
           </p>
           <div className="mt-5 flex gap-2">
             <Button type="button" variant="secondary" onClick={() => setStep(1)}>
@@ -362,16 +401,50 @@ export function CheckOutClient({
       ) : null}
 
       {step === 3 ? (
-        <div className="surface p-5">
-          <h2 className="text-lg font-semibold">Check-out concluído</h2>
-          <p className="font-ui mt-2 text-sm text-stone-600">
-            Estadia fechada operacionalmente. Quarto indisponível para novos hóspedes até
-            limpeza e inspecção.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
+        <div className="surface space-y-4 p-5">
+          <div>
+            <h2 className="text-lg font-semibold">Check-out concluído</h2>
+            <p className="font-ui mt-2 text-sm text-stone-600">
+              Estadia fechada operacionalmente. Quarto indisponível para novos hóspedes até
+              limpeza e inspecção.
+            </p>
+          </div>
+
+          {resultInvoice ? (
+            <InvoiceSettlementActions
+              canSettle={canSettleInvoices}
+              invoice={resultInvoice}
+              onUpdated={({ invoice: inc }) => {
+                setResultInvoice((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        status: String(inc.status ?? prev.status),
+                        orderReference:
+                          "orderReference" in inc
+                            ? (inc.orderReference as string | null)
+                            : prev.orderReference,
+                        centralState:
+                          "centralState" in inc
+                            ? (inc.centralState as string | null)
+                            : prev.centralState,
+                        centralTotal:
+                          inc.centralTotal != null ? Number(inc.centralTotal) : prev.centralTotal,
+                        centralRestPayable:
+                          inc.centralRestPayable != null
+                            ? Number(inc.centralRestPayable)
+                            : prev.centralRestPayable,
+                      }
+                    : prev,
+                );
+              }}
+            />
+          ) : null}
+
+          <div className="flex flex-wrap gap-2">
             {resultInvoiceId ? (
               <Link href={`/integrations/invoices/${resultInvoiceId}`}>
-                <Button type="button">Abrir documento SIGESC</Button>
+                <Button type="button">Abrir detalhe completo da fatura</Button>
               </Link>
             ) : null}
             <Link href="/dashboard/front-desk">

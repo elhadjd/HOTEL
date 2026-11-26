@@ -22,14 +22,18 @@ export default async function CentralProductsPage({
   const ctx = await requirePageTenant("integrations.products");
 
   let products: Awaited<ReturnType<typeof searchCentralProducts>>["data"] = [];
+  let pagination:
+    | { current_page?: number; per_page?: number; total?: number; last_page?: number }
+    | undefined;
   let mappings: Awaited<ReturnType<typeof listCatalogMappings>> = [];
   let loadError: string | null = null;
   try {
     const [list, maps] = await Promise.all([
-      searchCentralProducts(prisma, ctx, { kind: "service", per_page: 50 }),
+      searchCentralProducts(prisma, ctx, { kind: "service", per_page: 25 }),
       listCatalogMappings(prisma, ctx),
     ]);
     products = list.data ?? [];
+    pagination = list.meta?.pagination;
     mappings = maps;
   } catch (err) {
     loadError = err instanceof Error ? err.message : "Falha ao carregar catálogo";
@@ -42,7 +46,7 @@ export default async function CentralProductsPage({
           Preço oficial SIGESC Central (frescor {CENTRAL_PRICE_FRESHNESS_MS / 60000} min). Stock não
           passa por estes endpoints.
         </p>
-        <Badge tone="accent">Phase 5</Badge>
+        <Badge tone="accent">SIGESC Central</Badge>
       </div>
       {loadError ? (
         <div className="surface p-5">
@@ -51,6 +55,7 @@ export default async function CentralProductsPage({
       ) : (
         <ProductsClient
           initialProducts={products ?? []}
+          initialPagination={pagination}
           mappings={mappings.map((m) => ({
             id: m.id,
             localCode: m.localCode,

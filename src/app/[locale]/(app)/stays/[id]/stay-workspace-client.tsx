@@ -6,6 +6,7 @@ import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select";
+import { InvoiceSettlementActions } from "@/components/invoices/invoice-settlement-actions";
 
 type StayPayload = {
   id: string;
@@ -50,6 +51,7 @@ export function StayWorkspaceClient({
   stay,
   account,
   invoices,
+  canSettleInvoices = false,
   eligibleInvoiceId,
   unbilledMappedLines,
   availableRooms,
@@ -77,12 +79,15 @@ export function StayWorkspaceClient({
     id: string;
     externalId: string;
     saleKey: string | null;
+    orderReference?: string | null;
     status: string;
     centralState: string | null;
     centralTotal: number | null;
+    centralRestPayable?: number | null;
     currency: string;
     updatedAt: string;
   }>;
+  canSettleInvoices?: boolean;
   eligibleInvoiceId: string | null;
   unbilledMappedLines: Array<{ mappingLocalCode: string; label: string; quantity: number }>;
   availableRooms: Array<{ id: string; code: string; categoryName: string; capacity: number }>;
@@ -594,7 +599,7 @@ export function StayWorkspaceClient({
                       href={`/integrations/invoices/${inv.id}`}
                       className="font-medium text-teal-700 hover:underline"
                     >
-                      {inv.externalId}
+                      {inv.orderReference || inv.externalId}
                     </Link>
                     {inv.saleKey ? (
                       <button
@@ -615,9 +620,27 @@ export function StayWorkspaceClient({
                     {inv.centralTotal != null
                       ? money(inv.centralTotal, inv.currency)
                       : "Total central pendente"}
+                    {inv.centralRestPayable != null
+                      ? ` · Por liquidar: ${money(inv.centralRestPayable, inv.currency)}`
+                      : ""}
                     {" · "}
                     {new Date(inv.updatedAt).toLocaleString("pt-PT")}
                   </p>
+                  <InvoiceSettlementActions
+                    compact
+                    canSettle={canSettleInvoices}
+                    invoice={{
+                      id: inv.id,
+                      externalId: inv.externalId,
+                      saleKey: inv.saleKey,
+                      orderReference: inv.orderReference ?? null,
+                      status: inv.status,
+                      centralState: inv.centralState,
+                      centralTotal: inv.centralTotal,
+                      centralRestPayable: inv.centralRestPayable ?? null,
+                      currency: inv.currency,
+                    }}
+                  />
                 </li>
               ))
             )}

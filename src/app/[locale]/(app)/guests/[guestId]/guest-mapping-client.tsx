@@ -12,6 +12,8 @@ type Customer = {
   email?: string | null;
   nif?: string | null;
   phone?: string | null;
+  address?: string | null;
+  city?: string | null;
 };
 
 export function GuestMappingClient({
@@ -30,8 +32,70 @@ export function GuestMappingClient({
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editSurname, setEditSurname] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editNif, setEditNif] = useState("");
+  const [editAddress, setEditAddress] = useState("");
+  const [editCity, setEditCity] = useState("");
+
   const needsResolution =
     syncStatus === "NEEDS_RESOLUTION" || syncStatus === "UNLINKED" || !externalCustomerId;
+
+  function loadLinkedForEdit() {
+    if (!externalCustomerId) return;
+    setError(null);
+    setInfo(null);
+    startTransition(async () => {
+      const res = await fetch(`/api/v1/integrations/sigesc/customers/${externalCustomerId}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Falha ao carregar dados do cliente no SIGESC");
+        return;
+      }
+      const c = data.customer as Customer;
+      setEditName(c.name ?? "");
+      setEditSurname(c.surname ?? "");
+      setEditEmail(c.email ?? "");
+      setEditPhone(c.phone ?? "");
+      setEditNif(c.nif ?? "");
+      setEditAddress(c.address ?? "");
+      setEditCity(c.city ?? "");
+      setEditOpen(true);
+    });
+  }
+
+  function saveLinkedEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!externalCustomerId) return;
+    setError(null);
+    setInfo(null);
+    startTransition(async () => {
+      const res = await fetch(`/api/v1/integrations/sigesc/customers/${externalCustomerId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editName.trim(),
+          surname: editSurname.trim() || null,
+          email: editEmail.trim() || null,
+          phone: editPhone.trim() || null,
+          nif: editNif.trim() || null,
+          address: editAddress.trim() || null,
+          city: editCity.trim() || null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Falha ao actualizar cliente no SIGESC");
+        return;
+      }
+      setEditOpen(false);
+      setInfo(`Cliente SIGESC #${externalCustomerId} actualizado com sucesso.`);
+      router.refresh();
+    });
+  }
 
   function search(e: React.FormEvent) {
     e.preventDefault();
@@ -94,11 +158,27 @@ export function GuestMappingClient({
 
   return (
     <div className="surface p-5">
-      <h3 className="text-lg font-semibold text-ink-900">Cliente financeiro SIGESC</h3>
-      <p className="font-ui mt-1 text-sm text-stone-500">
-        Estado: <strong>{syncStatus}</strong>
-        {externalCustomerId ? ` · ID ${externalCustomerId}` : ""}
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-lg font-semibold text-ink-900">Cliente financeiro SIGESC</h3>
+          <p className="font-ui mt-1 text-sm text-stone-500">
+            Estado: <strong>{syncStatus}</strong>
+            {externalCustomerId ? ` · ID ${externalCustomerId}` : ""}
+          </p>
+        </div>
+        {!needsResolution && externalCustomerId ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={pending}
+            onClick={() => (editOpen ? setEditOpen(false) : loadLinkedForEdit())}
+          >
+            {editOpen ? "Fechar edição" : "Editar no SIGESC"}
+          </Button>
+        ) : null}
+      </div>
+
       {needsResolution ? (
         <p className="font-ui mt-2 text-sm text-amber-800">
           Este hóspede histórico precisa de resolução explícita — não pode ser usado em reservas ou
@@ -107,6 +187,66 @@ export function GuestMappingClient({
       ) : null}
       {error ? <p className="font-ui mt-2 text-sm text-red-700">{error}</p> : null}
       {info ? <p className="font-ui mt-2 text-sm text-teal-800">{info}</p> : null}
+
+      {editOpen && externalCustomerId ? (
+        <form
+          onSubmit={saveLinkedEdit}
+          className="font-ui mt-4 space-y-2 rounded-md border border-teal-200 bg-teal-50/40 p-4 text-sm"
+        >
+          <p className="text-xs font-semibold uppercase tracking-wide text-teal-900">
+            Editar ficha fiscal no SIGESC (#{externalCustomerId})
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input
+              required
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              placeholder="Nome *"
+              className="h-9 rounded-md border border-sand-200 bg-white px-2.5"
+            />
+            <input
+              value={editSurname}
+              onChange={(e) => setEditSurname(e.target.value)}
+              placeholder="Apelido"
+              className="h-9 rounded-md border border-sand-200 bg-white px-2.5"
+            />
+            <input
+              type="email"
+              value={editEmail}
+              onChange={(e) => setEditEmail(e.target.value)}
+              placeholder="Email"
+              className="h-9 rounded-md border border-sand-200 bg-white px-2.5"
+            />
+            <input
+              value={editPhone}
+              onChange={(e) => setEditPhone(e.target.value)}
+              placeholder="Telefone"
+              className="h-9 rounded-md border border-sand-200 bg-white px-2.5"
+            />
+            <input
+              value={editNif}
+              onChange={(e) => setEditNif(e.target.value)}
+              placeholder="NIF"
+              className="h-9 rounded-md border border-sand-200 bg-white px-2.5"
+            />
+            <input
+              value={editCity}
+              onChange={(e) => setEditCity(e.target.value)}
+              placeholder="Cidade"
+              className="h-9 rounded-md border border-sand-200 bg-white px-2.5"
+            />
+          </div>
+          <input
+            value={editAddress}
+            onChange={(e) => setEditAddress(e.target.value)}
+            placeholder="Morada"
+            className="h-9 w-full rounded-md border border-sand-200 bg-white px-2.5"
+          />
+          <Button type="submit" size="sm" disabled={pending}>
+            {pending ? "A guardar…" : "Guardar no SIGESC"}
+          </Button>
+        </form>
+      ) : null}
 
       <form onSubmit={search} className="mt-4 flex flex-wrap gap-2">
         <input

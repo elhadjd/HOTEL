@@ -5,6 +5,7 @@ import { prisma } from "@/server/db";
 import { requirePageTenant } from "@/server/page-auth";
 import {
   extractInvoiceLines,
+  extractInvoicePayments,
   getInvoiceIntegration,
 } from "@/modules/sigesc-integration/invoices/invoice-service";
 import { listCatalogMappings } from "@/modules/sigesc-integration/products/products-service";
@@ -44,20 +45,26 @@ export default async function InvoiceDetailPage({
   ]);
 
   const lines = extractInvoiceLines(invoice.linesJson);
+  const payments = extractInvoicePayments(invoice.linesJson);
+  const canSettle = ctx.permissions.includes("integrations.invoices.settle");
 
   return (
-    <AppShell title={invoice.externalId}>
+    <AppShell title={invoice.orderReference || invoice.externalId}>
       <InvoiceDetailClient
+        canSettle={canSettle}
         invoice={{
           id: invoice.id,
           externalId: invoice.externalId,
           requestedState: invoice.requestedState,
           status: invoice.status,
           saleKey: invoice.saleKey,
+          orderReference: invoice.orderReference,
           centralState: invoice.centralState,
           centralTotal: invoice.centralTotal != null ? Number(invoice.centralTotal) : null,
           centralSubtotal: invoice.centralSubtotal != null ? Number(invoice.centralSubtotal) : null,
           centralTax: invoice.centralTax != null ? Number(invoice.centralTax) : null,
+          centralRestPayable:
+            invoice.centralRestPayable != null ? Number(invoice.centralRestPayable) : null,
           currency: invoice.currency,
           lastError: invoice.lastError,
           notes: invoice.notes,
@@ -68,6 +75,7 @@ export default async function InvoiceDetailPage({
           createdAt: invoice.createdAt.toISOString(),
           updatedAt: invoice.updatedAt.toISOString(),
           lines,
+          payments,
           attempts: invoice.attempts.map((a) => ({
             id: a.id,
             attemptNo: a.attemptNo,
