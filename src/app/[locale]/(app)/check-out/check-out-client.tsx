@@ -156,13 +156,13 @@ export function CheckOutClient({
       if (data.handoff === "RECONCILIATION_PENDING" || data.handoff === "PENDING") {
         setError(
           data.message ??
-            "Handoff financeiro no SIGESC ficou pendente de reconciliação — check-out não foi concluído.",
+            "Handoff financeiro no sistema central ficou pendente de reconciliação — check-out não foi concluído.",
         );
         return;
       }
       setMessage(
         data.handoff === "CENTRAL_CONFIRMED"
-          ? "Check-out concluído com Proforma/documento confirmado no SIGESC. Pode publicar e liquidar a fatura abaixo sem sair da recepção."
+          ? "Check-out concluído com Proforma/documento confirmado no sistema central. Pode publicar e liquidar a fatura abaixo sem sair da recepção."
           : `Check-out operacional concluído (handoff ${data.handoff ?? "NOT_REQUIRED"}). Quarto segue para limpeza/inspecção.`,
       );
       setStep(3);
@@ -181,7 +181,7 @@ export function CheckOutClient({
           <h1 className="mt-1 text-3xl font-semibold text-ink-900">Check-out guiado</h1>
           <p className="font-ui mt-1 max-w-2xl text-sm text-stone-600">
             Alterne entre partidas do dia/em atraso ou todas as estadias activas (para saídas
-            antecipadas). Pode emitir, publicar e liquidar a fatura no SIGESC directamente aqui.
+            antecipadas). Pode emitir, publicar e liquidar a fatura no sistema central directamente aqui.
           </p>
         </div>
         <div className="font-ui flex flex-wrap gap-2 text-xs">
@@ -325,7 +325,7 @@ export function CheckOutClient({
               </dd>
             </div>
             <div className="flex justify-between">
-              <dt>Itens mapeados por enviar ao SIGESC</dt>
+              <dt>Itens mapeados por enviar ao sistema central</dt>
               <dd>{suggestedLines.length}</dd>
             </div>
           </dl>
@@ -338,13 +338,13 @@ export function CheckOutClient({
                 onChange={(e) => setRequestProforma(e.target.checked)}
               />
               {eligibleInvoice
-                ? "Confirmar / anexar itens pendentes ao documento SIGESC existente"
-                : "Criar e submeter Proforma no SIGESC com os itens mapeados da estadia"}
+                ? "Confirmar / anexar itens pendentes ao documento Sistema Central existente"
+                : "Criar e submeter Proforma no sistema central com os itens mapeados da estadia"}
             </label>
           ) : (
             <p className="font-ui mt-4 text-xs text-amber-800">
               Sem itens mapeados por enviar. O check-out será apenas operacional (para faturar no
-              SIGESC, crie uma Cotação/Proforma na estadia ou em Faturas).
+              Sistema Central, crie uma Cotação/Proforma na estadia ou em Faturas).
             </p>
           )}
 
@@ -386,7 +386,7 @@ export function CheckOutClient({
 
           <p className="font-ui mt-3 text-xs text-stone-500">
             Confirmação explícita necessária. O turnover do quarto (DIRTY + tarefa) é feito
-            atomicamente; após confirmar, pode publicar e liquidar a fatura no SIGESC no passo
+            atomicamente; após confirmar, pode publicar e liquidar a fatura no sistema central no passo
             seguinte.
           </p>
           <div className="mt-5 flex gap-2">

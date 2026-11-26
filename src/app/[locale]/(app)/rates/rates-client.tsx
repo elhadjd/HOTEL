@@ -231,7 +231,7 @@ export function RatesClient({
         <div>
           <h1 className="text-3xl font-semibold text-ink-900">Tarifas</h1>
           <p className="font-ui mt-1 max-w-2xl text-sm text-stone-500">
-            Planos tarifários operacionais de alojamento. Preços SIGESC de produtos comerciais
+            Planos tarifários operacionais de alojamento. Preços Sistema Central de produtos comerciais
             permanecem sob autoridade central — estas tarifas não são documentos fiscais.
           </p>
         </div>

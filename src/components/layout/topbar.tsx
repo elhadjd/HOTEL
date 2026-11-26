@@ -10,6 +10,7 @@ export function TopBar({
   userName,
   hotelName,
   labels,
+  permissions,
   searchPlaceholder,
   localeLabel,
 }: {
@@ -17,6 +18,7 @@ export function TopBar({
   userName: string;
   hotelName: string;
   labels: Record<string, string>;
+  permissions?: string[];
   searchPlaceholder: string;
   localeLabel: string;
 }) {
@@ -46,10 +48,10 @@ export function TopBar({
             <Menu className="h-4 w-4" />
           </Button>
           <div className="min-w-0 flex-1">
-            <p className="font-ui text-[11px] uppercase tracking-[0.18em] text-stone-400">
-              SIGESC Hotelaria
+            <p className="font-ui text-[11px] font-medium uppercase tracking-[0.16em] text-stone-400">
+              {hotelName}
             </p>
-            <h2 className="truncate text-xl font-semibold text-ink-900">{title}</h2>
+            <h2 className="font-display truncate text-xl font-semibold text-ink-900">{title}</h2>
           </div>
           <div className="hidden max-w-md flex-1 md:block">
             <label className="font-ui relative block">
@@ -69,7 +71,7 @@ export function TopBar({
               {localeLabel}
             </Button>
             <div className="font-ui hidden items-center gap-2 rounded-md border border-sand-200 bg-white px-3 py-1.5 text-sm sm:flex">
-              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-900 text-xs text-white">
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-900 text-xs font-medium text-white">
                 {userName.slice(0, 1).toUpperCase()}
               </span>
               <span className="max-w-[120px] truncate text-stone-700">{userName}</span>
@@ -100,7 +102,11 @@ export function TopBar({
               </Button>
             </div>
             <SidebarBrand hotelName={hotelName} />
-            <SidebarNav labels={labels} onNavigate={() => setMobileOpen(false)} />
+            <SidebarNav
+              labels={labels}
+              permissions={permissions}
+              onNavigate={() => setMobileOpen(false)}
+            />
           </div>
         </div>
       ) : null}

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Libre_Baskerville, Source_Sans_3 } from "next/font/google";
+import { Inter, JetBrains_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
@@ -14,21 +14,30 @@ import "../globals.css";
  */
 export const revalidate = 0;
 
-const display = Libre_Baskerville({
+const display = Plus_Jakarta_Sans({
   subsets: ["latin"],
-  weight: ["400", "700"],
+  weight: ["500", "600", "700", "800"],
   variable: "--font-display",
+  display: "swap",
 });
 
-const ui = Source_Sans_3({
+const ui = Inter({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
   variable: "--font-ui",
+  display: "swap",
+});
+
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-mono",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "SIGESC Hotelaria",
-  description: "Modern Hospitality Intelligence — plataforma operacional SIGESC Hotelaria",
+  title: "Hotelaria PMS",
+  description: "Plataforma moderna de gestão hoteleira, reservas, receção e faturação",
 };
 
 export function generateStaticParams() {
@@ -57,7 +66,7 @@ export default async function LocaleLayout({
         {/* eslint-disable-next-line @next/next/no-css-tags */}
         <link rel="stylesheet" href="/hotelaria-app.css" />
       </head>
-      <body className={`${display.variable} ${ui.variable} antialiased`}>
+      <body className={`${display.variable} ${ui.variable} ${mono.variable} antialiased`}>
         <CriticalCss />
         <NextIntlClientProvider messages={messages}>
           <Providers>{children}</Providers>

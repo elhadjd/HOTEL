@@ -47,7 +47,7 @@ export function CreateRoomForm({
     <form onSubmit={onSubmit} className="surface h-fit p-5">
       <h3 className="text-lg font-semibold text-ink-900">Novo quarto</h3>
       <div className="font-ui mt-4 space-y-3 text-sm">
-        <label className="block">
+        <div className="block">
           <span className="text-stone-500">Categoria</span>
           <SearchableSelect
             className="mt-1"
@@ -62,7 +62,7 @@ export function CreateRoomForm({
             labels={{ placeholder: "Seleccionar categoria", searchPlaceholder: "Nome / código…" }}
             clearable={false}
           />
-        </label>
+        </div>
         <label className="block">
           <span className="text-stone-500">Código</span>
           <input

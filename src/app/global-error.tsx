@@ -24,7 +24,7 @@ export default function GlobalError({
       >
         <div style={{ maxWidth: 420, textAlign: "center" }}>
           <p style={{ fontSize: 12, letterSpacing: "0.2em", textTransform: "uppercase" }}>
-            SIGESC Hotelaria
+            Hotelaria PMS
           </p>
           <h1 style={{ fontSize: 28, margin: "12px 0" }}>Erro na aplicação</h1>
           <p style={{ color: "#6f675e", fontSize: 14, lineHeight: 1.5 }}>

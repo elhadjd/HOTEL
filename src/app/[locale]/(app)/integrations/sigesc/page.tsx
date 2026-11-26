@@ -65,7 +65,7 @@ export default async function SigescIntegrationHubPage({
                 <dd>{connection.ownerCompanyExternalId ?? "—"}</dd>
               </div>
               <div>
-                <dt className="text-xs uppercase text-stone-400">Host SIGESC</dt>
+                <dt className="text-xs uppercase text-stone-400">Host do servidor central</dt>
                 <dd>{connection.host}</dd>
               </div>
               <div>

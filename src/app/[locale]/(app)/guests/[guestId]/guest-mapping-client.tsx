@@ -52,7 +52,7 @@ export function GuestMappingClient({
       const res = await fetch(`/api/v1/integrations/sigesc/customers/${externalCustomerId}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error ?? "Falha ao carregar dados do cliente no SIGESC");
+        setError(data.error ?? "Falha ao carregar dados do cliente no sistema central");
         return;
       }
       const c = data.customer as Customer;
@@ -88,11 +88,11 @@ export function GuestMappingClient({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error ?? "Falha ao actualizar cliente no SIGESC");
+        setError(data.error ?? "Falha ao actualizar cliente no sistema central");
         return;
       }
       setEditOpen(false);
-      setInfo(`Cliente SIGESC #${externalCustomerId} actualizado com sucesso.`);
+      setInfo(`Cliente central #${externalCustomerId} actualizado com sucesso.`);
       router.refresh();
     });
   }
@@ -160,7 +160,7 @@ export function GuestMappingClient({
     <div className="surface p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-lg font-semibold text-ink-900">Cliente financeiro SIGESC</h3>
+          <h3 className="text-lg font-semibold text-ink-900">Cliente financeiro central</h3>
           <p className="font-ui mt-1 text-sm text-stone-500">
             Estado: <strong>{syncStatus}</strong>
             {externalCustomerId ? ` · ID ${externalCustomerId}` : ""}
@@ -174,7 +174,7 @@ export function GuestMappingClient({
             disabled={pending}
             onClick={() => (editOpen ? setEditOpen(false) : loadLinkedForEdit())}
           >
-            {editOpen ? "Fechar edição" : "Editar no SIGESC"}
+            {editOpen ? "Fechar edição" : "Editar no sistema central"}
           </Button>
         ) : null}
       </div>
@@ -194,7 +194,7 @@ export function GuestMappingClient({
           className="font-ui mt-4 space-y-2 rounded-md border border-teal-200 bg-teal-50/40 p-4 text-sm"
         >
           <p className="text-xs font-semibold uppercase tracking-wide text-teal-900">
-            Editar ficha fiscal no SIGESC (#{externalCustomerId})
+            Editar ficha fiscal no sistema central (#{externalCustomerId})
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
             <input
@@ -243,7 +243,7 @@ export function GuestMappingClient({
             className="h-9 w-full rounded-md border border-sand-200 bg-white px-2.5"
           />
           <Button type="submit" size="sm" disabled={pending}>
-            {pending ? "A guardar…" : "Guardar no SIGESC"}
+            {pending ? "A guardar…" : "Guardar no sistema central"}
           </Button>
         </form>
       ) : null}

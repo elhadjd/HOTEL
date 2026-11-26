@@ -41,7 +41,7 @@ export default async function CentralCustomersPage({
     <AppShell title={t("nav.centralCustomers")}>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <p className="font-ui max-w-2xl text-sm text-stone-500">
-          Clientes financeiros oficiais no SIGESC. Um cliente pode existir sem hóspede; a
+          Clientes financeiros oficiais no sistema central. Um cliente pode existir sem hóspede; a
           conversão em hóspede é uma acção explícita (individual ou em lote).
         </p>
         <Badge tone="accent">Phase 5</Badge>

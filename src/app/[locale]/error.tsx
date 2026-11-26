@@ -15,7 +15,7 @@ export default function LocaleError({
 
   return (
     <main className="mx-auto flex min-h-[70vh] max-w-lg flex-col items-center justify-center px-6 text-center">
-      <p className="font-ui text-xs uppercase tracking-[0.28em] text-teal-600">SIGESC</p>
+      <p className="font-ui text-xs uppercase tracking-[0.28em] text-teal-600">Sistema Central</p>
       <h1 className="mt-3 text-3xl font-semibold text-ink-900">Algo correu mal</h1>
       <p className="font-ui mt-3 text-sm text-stone-500">
         Não foi possível apresentar esta página. Pode tentar novamente sem sair da

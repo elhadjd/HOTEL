@@ -251,7 +251,12 @@ export function SearchableSelect({
           type="button"
           className="absolute right-9 top-1/2 -translate-y-1/2 rounded p-1 text-stone-400 hover:bg-sand-100 hover:text-ink-800"
           aria-label={labels?.clear ?? "Limpar"}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
           onClick={(e) => {
+            e.preventDefault();
             e.stopPropagation();
             selectValue("");
           }}
@@ -261,9 +266,14 @@ export function SearchableSelect({
       ) : null}
 
       {open ? (
-        <div className="absolute z-40 mt-1 w-full overflow-hidden rounded-md border border-sand-200 bg-white shadow-[var(--shadow-soft)] animate-fade-up">
+        <div
+          className="absolute z-40 mt-1 w-full overflow-hidden rounded-md border border-sand-200 bg-white shadow-[var(--shadow-soft)] animate-fade-up"
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
+        >
           <div className="border-b border-sand-100 p-2">
-            <label className="relative block">
+            <div className="relative block">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-stone-400" />
               <input
                 ref={searchRef}
@@ -278,7 +288,7 @@ export function SearchableSelect({
               {asyncLoading ? (
                 <Loader2 className="absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-stone-400" />
               ) : null}
-            </label>
+            </div>
           </div>
           <ul
             id={listboxId}
@@ -317,7 +327,13 @@ export function SearchableSelect({
                         opt.disabled ? "cursor-not-allowed opacity-50" : null,
                       )}
                       onMouseEnter={() => setHighlight(index)}
-                      onClick={() => {
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                         if (!opt.disabled) selectValue(opt.value);
                       }}
                     >

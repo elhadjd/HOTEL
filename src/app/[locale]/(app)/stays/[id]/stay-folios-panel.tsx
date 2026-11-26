@@ -119,13 +119,13 @@ export function StayFoliosPanel({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error ?? "Falha ao emitir documento do folio no SIGESC");
+        setError(data.error ?? "Falha ao emitir documento do folio no sistema central");
         return;
       }
       if (data.reconciliationRequired) {
         setError(data.message ?? "Documento do folio ficou pendente de reconciliação.");
       } else {
-        setMessage(data.message ?? "Documento emitido no SIGESC.");
+        setMessage(data.message ?? "Documento emitido no sistema central.");
       }
       router.refresh();
     });
@@ -190,7 +190,7 @@ export function StayFoliosPanel({
       </h2>
       <p className="font-ui mt-1 text-xs text-stone-500">
         Separe alojamento (ex.: faturado à empresa/agência) de extras/minibar (hóspede) e emita
-        Proformas independentes no SIGESC para cada pagador.
+        Proformas independentes no sistema central para cada pagador.
       </p>
 
       {error ? (
@@ -281,7 +281,7 @@ export function StayFoliosPanel({
                     disabled={pending}
                     onClick={() => emitFolio(bucket.id, "Proforma")}
                   >
-                    Emitir Proforma SIGESC ({unbilledMappedCount})
+                    Emitir Proforma central ({unbilledMappedCount})
                   </Button>
                   <Button
                     type="button"

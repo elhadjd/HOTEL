@@ -135,7 +135,7 @@ export function ConsumptionClient({
       pendingKeyRef.current = null;
       setInvoiceId(data.invoice?.id ?? null);
       if (data.reconciliationRequired) {
-        setError(data.message ?? "Consumo registado localmente, mas envio ao SIGESC requer reconciliação.");
+        setError(data.message ?? "Consumo registado localmente, mas envio ao sistema central requer reconciliação.");
       } else {
         setMessage(data.message ?? "Consumo registado");
       }

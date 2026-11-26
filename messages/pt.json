@@ -1,6 +1,6 @@
 {
   "brand": {
-    "name": "SIGESC Hotelaria",
+    "name": "Hotelaria PMS",
     "tagline": "Inteligência operacional para hospitalidade premium"
   },
   "nav": {
@@ -18,11 +18,11 @@
     "rates": "Tarifas",
     "reports": "Relatórios",
     "staff": "Equipa",
-    "integrations": "Integração SIGESC",
+    "integrations": "Sistema Central",
     "settings": "Definições",
-    "centralCustomers": "Clientes SIGESC",
-    "centralProducts": "Catálogo SIGESC",
-    "centralInvoices": "Cotações SIGESC",
+    "centralCustomers": "Clientes Centrais",
+    "centralProducts": "Catálogo Central",
+    "centralInvoices": "Faturas e Cotações",
     "stays": "Estadias",
     "frontDesk": "Front Desk",
     "roomOperations": "Quadro de quartos",
@@ -47,7 +47,7 @@
   },
   "auth": {
     "login": "Entrar",
-    "loginSubtitle": "Aceda à sua conta institucional SIGESC Hotelaria",
+    "loginSubtitle": "Aceda à sua conta institucional Hotelaria PMS",
     "loginError": "Email ou palavra-passe inválidos",
     "email": "Email",
     "password": "Palavra-passe",
@@ -63,7 +63,7 @@
     "savePassword": "Guardar palavra-passe",
     "resetTitle": "Redefinir palavra-passe",
     "resetInvalid": "Link de recuperação inválido ou em falta.",
-    "onboardingWelcome": "Ligue a sua empresa já registada no SIGESC central através da chave Aggregate oficial.",
+    "onboardingWelcome": "Ligue a sua empresa já registada no Sistema Central através da chave Aggregate oficial.",
     "onboardingHelp": "A chave mca_ é validada no servidor. Nunca é guardada no browser após o envio.",
     "apiKey": "Chave Aggregate API",
     "validateKey": "Validar chave",
@@ -80,7 +80,7 @@
   },
   "dashboard": {
     "title": "Operações de hoje",
-    "subtitle": "Indicadores operacionais derivados dos registos do hotel — sem métricas financeiras SIGESC.",
+    "subtitle": "Indicadores operacionais derivados dos registos do hotel — sem métricas financeiras externas.",
     "totalRooms": "Quartos",
     "available": "Disponíveis",
     "occupied": "Ocupados",

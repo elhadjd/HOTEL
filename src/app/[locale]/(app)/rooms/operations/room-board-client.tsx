@@ -111,13 +111,15 @@ export function RoomBoardClient({
       {error ? <p className="font-ui text-sm text-danger">{error}</p> : null}
 
       <div className="surface grid gap-3 p-4 md:grid-cols-3 xl:grid-cols-6">
-        <SearchableSelect
-          options={[{ value: "", label: "Todos os hotéis" }, ...hotels]}
-          value={hotelId}
-          onChange={setHotelId}
-          clearable={false}
-          labels={{ placeholder: "Hotel" }}
-        />
+        {hotels.length > 1 ? (
+          <SearchableSelect
+            options={[{ value: "", label: "Todos os hotéis" }, ...hotels]}
+            value={hotelId}
+            onChange={setHotelId}
+            clearable={false}
+            labels={{ placeholder: "Hotel" }}
+          />
+        ) : null}
         <SearchableSelect
           options={[{ value: "", label: "Todos os andares" }, ...floors]}
           value={floor}

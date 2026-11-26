@@ -188,8 +188,8 @@ export function StaysClient({
           <div className="surface space-y-3 p-5">
             <h2 className="font-display text-xl text-ink-900">Transferir quarto</h2>
             <div className="grid gap-3 md:grid-cols-2">
-              <label className="block text-sm">
-                Quarto destino
+              <div className="block text-sm">
+                <span>Quarto destino</span>
                 <SearchableSelect
                   className="mt-1"
                   options={roomOptions}
@@ -201,7 +201,7 @@ export function StaysClient({
                     empty: "Sem quartos disponíveis",
                   }}
                 />
-              </label>
+              </div>
               <label className="block text-sm">
                 Motivo
                 <input

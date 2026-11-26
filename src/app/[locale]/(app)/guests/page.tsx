@@ -25,7 +25,7 @@ export default async function GuestsPage({
     <AppShell title={t("nav.guests")}>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <p className="font-ui max-w-2xl text-sm text-stone-500">
-          Perfis operacionais — cada hóspede novo exige Cliente SIGESC. Históricos em
+          Perfis operacionais — cada hóspede novo exige Cliente central. Históricos em
           NEEDS_RESOLUTION devem ser resolvidos antes de reservas/faturas.
         </p>
         <Badge tone="accent">Phase 5</Badge>
@@ -50,7 +50,7 @@ export default async function GuestsPage({
                 <tr>
                   <th>Nome</th>
                   <th>Contacto</th>
-                  <th>SIGESC</th>
+                  <th>Sistema Central</th>
                 </tr>
               </thead>
               <tbody>

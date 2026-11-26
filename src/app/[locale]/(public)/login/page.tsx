@@ -18,7 +18,7 @@ export default async function LoginPage({
         className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,_rgba(15,118,110,0.08),_transparent_55%),linear-gradient(180deg,#f7f5f1_0%,#efe8dc_100%)]"
       />
       <div className="surface animate-fade-up p-8">
-        <p className="font-ui text-xs uppercase tracking-[0.22em] text-stone-400">SIGESC</p>
+        <p className="font-ui text-xs uppercase tracking-[0.22em] text-stone-400">Sistema Central</p>
         <h1 className="mt-2 text-3xl font-semibold text-ink-900">Hotelaria</h1>
         <p className="font-ui mt-2 text-sm text-stone-500">{t("auth.loginSubtitle")}</p>
         <LoginForm

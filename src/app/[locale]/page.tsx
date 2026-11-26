@@ -22,7 +22,7 @@ export default async function LandingPage({
       />
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col justify-end px-6 pb-20 pt-16 md:justify-center md:pb-24">
         <div className="max-w-2xl animate-fade-up text-white">
-          <p className="font-ui text-xs uppercase tracking-[0.28em] text-teal-100/90">SIGESC</p>
+          <p className="font-ui text-xs uppercase tracking-[0.28em] text-teal-100/90">Sistema Central</p>
           <h1 className="mt-3 text-5xl font-semibold leading-tight md:text-6xl">Hotelaria</h1>
           <p className="font-ui mt-5 max-w-xl text-base text-white/85 md:text-lg">
             {t("brand.tagline")}

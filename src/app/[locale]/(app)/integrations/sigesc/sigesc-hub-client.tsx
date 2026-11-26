@@ -40,7 +40,7 @@ export function SigescHubClient({
         return;
       }
       setMessage(
-        `Ligação SIGESC confirmada (${data.mode} · ${data.endpoint} · ${data.latencyMs}ms · empresa #${data.companyId}).`,
+        `Ligação ao Sistema Central confirmada (${data.mode} · ${data.endpoint} · ${data.latencyMs}ms · empresa #${data.companyId}).`,
       );
       router.refresh();
     });
@@ -61,7 +61,7 @@ export function SigescHubClient({
         return;
       }
       setMessage(
-        `Utilizadores sincronizados com o SIGESC: ${data.usersUpserted} utilizador(es) em ${data.pagesProcessed} página(s).`,
+        `Utilizadores sincronizados com o sistema central: ${data.usersUpserted} utilizador(es) em ${data.pagesProcessed} página(s).`,
       );
       router.refresh();
     });
@@ -80,7 +80,7 @@ export function SigescHubClient({
         return;
       }
       setMessage(
-        `Documentos sincronizados: ${data.checked} verificados, ${data.updated} com novo estado no SIGESC${data.failed ? `, ${data.failed} com erro` : ""}.`,
+        `Documentos sincronizados: ${data.checked} verificados, ${data.updated} com novo estado no sistema central${data.failed ? `, ${data.failed} com erro` : ""}.`,
       );
       router.refresh();
     });
@@ -121,7 +121,7 @@ export function SigescHubClient({
           Testar ligação ao vivo
         </Button>
         <Button type="button" variant="secondary" disabled={pending} onClick={syncUsers}>
-          Sincronizar utilizadores SIGESC
+          Sincronizar utilizadores Sistema Central
         </Button>
         <Button type="button" variant="secondary" disabled={pending} onClick={syncInvoices}>
           Sincronizar estados financeiros
@@ -160,7 +160,7 @@ export function SigescHubClient({
           className="font-ui space-y-3 rounded-lg border border-sand-200 bg-sand-50/60 p-4 text-sm"
         >
           <p className="text-xs text-stone-600">
-            A nova chave <code>mca_</code> é validada contra o SIGESC e tem de pertencer à mesma
+            A nova chave <code>mca_</code> é validada contra o Sistema Central e tem de pertencer à mesma
             empresa ligada a esta instituição.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -177,7 +177,7 @@ export function SigescHubClient({
               />
             </label>
             <label className="block">
-              <span className="text-xs text-stone-500">Host SIGESC (opcional)</span>
+              <span className="text-xs text-stone-500">Host do servidor central (opcional)</span>
               <input
                 type="url"
                 value={newHost}

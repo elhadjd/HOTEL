@@ -27,7 +27,7 @@ export default async function SetPasswordPage({
         className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(180deg,#f7f5f1_0%,#e7f0ee_100%)]"
       />
       <div className="surface animate-fade-up p-8">
-        <p className="font-ui text-xs uppercase tracking-[0.22em] text-stone-400">SIGESC</p>
+        <p className="font-ui text-xs uppercase tracking-[0.22em] text-stone-400">Sistema Central</p>
         <h1 className="mt-2 text-3xl font-semibold text-ink-900">{t("auth.setPasswordTitle")}</h1>
         <SetPasswordForm
           labels={{

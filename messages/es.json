@@ -1,6 +1,6 @@
 {
   "brand": {
-    "name": "SIGESC Hotelaria",
+    "name": "Hotelaria PMS",
     "tagline": "Inteligencia operativa para hospitalidad premium"
   },
   "nav": {
@@ -18,11 +18,11 @@
     "rates": "Tarifas",
     "reports": "Informes",
     "staff": "Personal",
-    "integrations": "Integración SIGESC",
+    "integrations": "Sistema Central",
     "settings": "Ajustes",
-    "centralCustomers": "Clientes SIGESC",
-    "centralProducts": "Catálogo SIGESC",
-    "centralInvoices": "Cotizaciones SIGESC",
+    "centralCustomers": "Clientes Centrais",
+    "centralProducts": "Catálogo Central",
+    "centralInvoices": "Facturas y Cotizaciones",
     "stays": "Estancias",
     "frontDesk": "Front Desk",
     "roomOperations": "Tablero de habitaciones",
@@ -47,7 +47,7 @@
   },
   "auth": {
     "login": "Entrar",
-    "loginSubtitle": "Acceda a su cuenta institucional SIGESC Hotelaria",
+    "loginSubtitle": "Acceda a su cuenta institucional Hotelaria PMS",
     "loginError": "Email o contraseña inválidos",
     "email": "Email",
     "password": "Contraseña",
@@ -63,7 +63,7 @@
     "savePassword": "Guardar contraseña",
     "resetTitle": "Restablecer contraseña",
     "resetInvalid": "Enlace de recuperación inválido o ausente.",
-    "onboardingWelcome": "Conecte su empresa ya registrada en SIGESC central con la clave Aggregate oficial.",
+    "onboardingWelcome": "Conecte su empresa ya registrada en el Sistema Central con la clave Aggregate oficial.",
     "onboardingHelp": "La clave mca_ se valida en el servidor. Nunca se guarda en el navegador tras el envío.",
     "apiKey": "Clave API Aggregate",
     "validateKey": "Validar clave",
@@ -80,7 +80,7 @@
   },
   "dashboard": {
     "title": "Operaciones de hoy",
-    "subtitle": "Indicadores operativos de los registros del hotel — sin métricas financieras SIGESC.",
+    "subtitle": "Indicadores operativos de los registros del hotel — sin métricas financieras Sistema Central.",
     "totalRooms": "Habitaciones",
     "available": "Disponibles",
     "occupied": "Ocupadas",

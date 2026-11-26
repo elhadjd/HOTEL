@@ -88,7 +88,7 @@ export function NightAuditPanel({
           <p className="font-ui mt-1 max-w-2xl text-xs text-stone-500">
             Marca automaticamente reservas não comparecidas como <code>NO_SHOW</code>, sincroniza
             diárias das estadias activas, regista o snapshot histórico de ocupação/ADR/RevPAR e
-            alerta faturas pendentes de reconciliação no SIGESC.
+            alerta faturas pendentes de reconciliação no sistema central.
           </p>
         </div>
       </div>
@@ -174,7 +174,7 @@ export function NightAuditPanel({
                 <th className="px-3 py-2.5">Alojamento</th>
                 <th className="px-3 py-2.5">Extras</th>
                 <th className="px-3 py-2.5">No-Shows</th>
-                <th className="px-3 py-2.5">Alertas SIGESC</th>
+                <th className="px-3 py-2.5">Alertas Sistema Central</th>
               </tr>
             </thead>
             <tbody>

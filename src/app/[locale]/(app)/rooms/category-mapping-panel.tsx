@@ -46,7 +46,7 @@ export function CategoryMappingPanel({
         setError(data.error ?? "Falha ao actualizar mapeamento de alojamento");
         return;
       }
-      setStatus("Mapeamento SIGESC guardado — próximos check-ins usam este produto automaticamente.");
+      setStatus("Mapeamento Sistema Central guardado — próximos check-ins usam este produto automaticamente.");
       router.refresh();
     });
   }
@@ -55,9 +55,9 @@ export function CategoryMappingPanel({
 
   return (
     <div className="surface p-5">
-      <h3 className="text-lg font-semibold text-ink-900">Alojamento ↔ Catálogo SIGESC</h3>
+      <h3 className="text-lg font-semibold text-ink-900">Alojamento ↔ Catálogo Sistema Central</h3>
       <p className="font-ui mt-1 text-xs text-stone-500">
-        Associe cada categoria de quarto a um serviço/produto SIGESC para lançar automaticamente
+        Associe cada categoria de quarto a um serviço/produto Sistema Central para lançar automaticamente
         as noites na conta da estadia e na Proforma do check-out.
       </p>
       {error ? <p className="font-ui mt-2 text-xs text-danger">{error}</p> : null}
@@ -77,7 +77,7 @@ export function CategoryMappingPanel({
                 }
                 className="h-9 flex-1 rounded-md border border-sand-200 bg-white px-2 text-xs"
               >
-                <option value="">Sem produto SIGESC associado</option>
+                <option value="">Sem produto Sistema Central associado</option>
                 {catalogMappings.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.localCode} · {m.localLabel}

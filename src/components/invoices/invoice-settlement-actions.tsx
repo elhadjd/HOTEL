@@ -115,7 +115,7 @@ export function InvoiceSettlementActions({
       const res = await fetch("/api/v1/integrations/sigesc/payment-methods");
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setMethodsError(data.error ?? "Falha ao carregar métodos de pagamento do SIGESC");
+        setMethodsError(data.error ?? "Falha ao carregar métodos de pagamento do sistema central");
         return;
       }
       const nextMethods = (data.payment_methods ?? []) as AggregatePaymentMethod[];
@@ -130,7 +130,7 @@ export function InvoiceSettlementActions({
         }
       }
     } catch {
-      setMethodsError("Não foi possível consultar métodos de pagamento no SIGESC.");
+      setMethodsError("Não foi possível consultar métodos de pagamento no sistema central.");
     }
   }, [methodsLoaded, paymentMethodId]);
 
@@ -167,9 +167,13 @@ export function InvoiceSettlementActions({
 
   function handlePublish() {
     if (!canPublish || pending) return;
+    const docLabel =
+      invoice.orderReference && !invoice.orderReference.startsWith("HOT-INV-")
+        ? invoice.orderReference
+        : invoice.saleKey ?? "actual";
     if (
       !window.confirm(
-        `Publicar o documento ${invoice.externalId} no SIGESC como Fatura fiscal definitiva (FT)? Após publicação, não será possível acrescentar linhas.`,
+        `Publicar o documento ${docLabel} no sistema central como Fatura fiscal definitiva (FT)? Após publicação, não será possível acrescentar linhas.`,
       )
     ) {
       return;
@@ -193,7 +197,7 @@ export function InvoiceSettlementActions({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error ?? "Falha ao publicar fatura no SIGESC");
+        setError(data.error ?? "Falha ao publicar fatura no sistema central");
         applyLocalUpdate(data);
         router.refresh();
         return;
@@ -202,13 +206,13 @@ export function InvoiceSettlementActions({
       if (data.reconciliationRequired) {
         setWarning(
           data.warning ??
-            "Publicação sem confirmação final do SIGESC. Actualize o estado central antes de repetir.",
+            "Publicação sem confirmação final do sistema central. Actualize o estado central antes de repetir.",
         );
       } else {
         publishKeyRef.current = null;
         const docNum = data.documentNumber ?? data.invoice?.orderReference;
         setMessage(
-          `Fatura publicada no SIGESC${docNum ? ` (${docNum})` : ""}. Já pode registar pagamentos abaixo.`,
+          `Fatura publicada no sistema central${docNum ? ` (${docNum})` : ""}. Já pode registar pagamentos abaixo.`,
         );
         setShowPayForm(true);
       }
@@ -238,7 +242,7 @@ export function InvoiceSettlementActions({
       return;
     }
     if (!Number.isInteger(numericMethodId) || numericMethodId < 1) {
-      setError("Seleccione um método de pagamento válido do SIGESC.");
+      setError("Seleccione um método de pagamento válido do sistema central.");
       return;
     }
 
@@ -273,7 +277,7 @@ export function InvoiceSettlementActions({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error ?? "Falha ao registar pagamento no SIGESC");
+        setError(data.error ?? "Falha ao registar pagamento no sistema central");
         applyLocalUpdate(data);
         router.refresh();
         return;
@@ -282,7 +286,7 @@ export function InvoiceSettlementActions({
       if (data.reconciliationRequired) {
         setWarning(
           data.warning ??
-            "Pagamento enviado sem confirmação final do SIGESC (timeout/rede). Actualize o estado ou tente novamente com a mesma chave.",
+            "Pagamento enviado sem confirmação final do sistema central (timeout/rede). Actualize o estado ou tente novamente com a mesma chave.",
         );
       } else {
         paymentKeyRef.current = null;
@@ -295,8 +299,8 @@ export function InvoiceSettlementActions({
             : null;
         setMessage(
           data.idempotent
-            ? `Pagamento já registado no SIGESC (idempotente${receipt}).`
-            : `Pagamento confirmado no SIGESC${receipt}. Por liquidar: ${formatMoney(nextRest, invoice.currency)}.`,
+            ? `Pagamento já registado no sistema central (idempotente${receipt}).`
+            : `Pagamento confirmado no sistema central${receipt}. Por liquidar: ${formatMoney(nextRest, invoice.currency)}.`,
         );
       }
       router.refresh();
@@ -310,12 +314,12 @@ export function InvoiceSettlementActions({
   if (isPaid) {
     return compact ? (
       <p className="font-ui mt-1 text-xs font-medium text-teal-800">
-        Fatura liquidada integralmente no SIGESC ({invoice.orderReference ?? invoice.saleKey}).
+        Fatura liquidada integralmente no sistema central ({invoice.orderReference ?? invoice.saleKey}).
       </p>
     ) : (
       <div className="surface border-l-4 border-l-teal-600 p-4">
         <p className="font-ui text-sm font-medium text-teal-900">
-          Fatura totalmente liquidada no SIGESC
+          Fatura totalmente liquidada no sistema central
           {invoice.orderReference ? ` (${invoice.orderReference})` : ""}. Saldo por liquidar: 0,00{" "}
           {invoice.currency}.
         </p>
@@ -327,7 +331,7 @@ export function InvoiceSettlementActions({
     return compact ? null : (
       <div className="surface-muted p-4">
         <p className="font-ui text-sm text-stone-600">
-          Documento anulado no SIGESC ({invoice.centralState}) — publicação e pagamentos bloqueados.
+          Documento anulado no sistema central ({invoice.centralState}) — publicação e pagamentos bloqueados.
         </p>
       </div>
     );
@@ -338,13 +342,13 @@ export function InvoiceSettlementActions({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className={compact ? "text-xs font-semibold uppercase tracking-wide text-ink-900" : "text-lg font-semibold text-ink-900"}>
-            {canPublish ? "Publicação fiscal no SIGESC" : "Liquidação / Pagamento no SIGESC"}
+            {canPublish ? "Publicação fiscal no sistema central" : "Liquidação / Pagamento no sistema central"}
           </h3>
           {!compact ? (
             <p className="font-ui mt-1 text-xs text-stone-500">
               {canPublish
-                ? "Converte a Cotação/Proforma numa Fatura oficial (FT) com numeração sequencial e hash SAF-T-AO no SIGESC."
-                : `Saldo actual por liquidar no SIGESC: ${formatMoney(remaining, invoice.currency)}. Suporta pagamento total ou parcial com protecção idempotente anti-duplicação.`}
+                ? "Converte a Cotação/Proforma numa Fatura oficial (FT) com numeração sequencial e hash SAF-T-AO no sistema central."
+                : `Saldo actual por liquidar no sistema central: ${formatMoney(remaining, invoice.currency)}. Suporta pagamento total ou parcial com protecção idempotente anti-duplicação.`}
             </p>
           ) : (
             <p className="font-ui text-xs text-stone-500">
@@ -418,7 +422,7 @@ export function InvoiceSettlementActions({
 
           <div className={compact ? "grid gap-2 sm:grid-cols-2" : "grid gap-3 sm:grid-cols-3"}>
             <label className="block">
-              <span className="text-xs text-stone-500">Método de pagamento SIGESC *</span>
+              <span className="text-xs text-stone-500">Método de pagamento *</span>
               <select
                 required
                 value={paymentMethodId}
@@ -476,7 +480,7 @@ export function InvoiceSettlementActions({
                   onChange={(e) => setBankAccountId(e.target.value)}
                   className="mt-1 h-9 w-full rounded-md border border-sand-200 bg-white px-2.5 text-sm"
                 >
-                  <option value="">Automático (padrão SIGESC)</option>
+                  <option value="">Automático (padrão Sistema Central)</option>
                   {accounts.map((acc) => (
                     <option key={acc.id} value={String(acc.id)}>
                       {acc.name}

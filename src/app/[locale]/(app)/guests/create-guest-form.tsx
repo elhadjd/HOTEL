@@ -68,7 +68,7 @@ export function CreateGuestForm() {
             };
 
       if (mode === "existing_customer" && !centralCustomerId) {
-        setError("Seleccione um cliente SIGESC central");
+        setError("Seleccione um cliente central central");
         return;
       }
 
@@ -97,7 +97,7 @@ export function CreateGuestForm() {
     <form onSubmit={onSubmit} className="surface h-fit p-5">
       <h3 className="text-lg font-semibold text-ink-900">Novo hóspede</h3>
       <p className="font-ui mt-1 text-xs text-stone-500">
-        Todo hóspede exige um Cliente financeiro SIGESC associado.
+        Todo hóspede exige um Cliente financeiro central associado.
       </p>
 
       <div className="font-ui mt-3 flex gap-2 text-sm">

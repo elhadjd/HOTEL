@@ -148,7 +148,7 @@ export function CustomersClient({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error ?? "Falha ao actualizar cliente no SIGESC");
+        setError(data.error ?? "Falha ao actualizar cliente no sistema central");
         return;
       }
       const updated = (data.customer ?? {}) as Customer;
@@ -165,7 +165,7 @@ export function CustomersClient({
         ),
       );
       setEditing(null);
-      setInfo(`Cliente #${editing.id} actualizado no SIGESC.`);
+      setInfo(`Cliente #${editing.id} actualizado no sistema central.`);
       router.refresh();
     });
   }
@@ -204,7 +204,7 @@ export function CustomersClient({
         { ...data.customer, associationStatus: "available" as const, guestId: null },
         ...prev,
       ]);
-      setInfo(`Cliente #${data.customer?.id} criado no SIGESC.`);
+      setInfo(`Cliente #${data.customer?.id} criado no sistema central.`);
       router.refresh();
     });
   }
@@ -499,7 +499,7 @@ export function CustomersClient({
               </button>
             </div>
             <p className="font-ui mt-1 text-xs text-stone-500">
-              Actualiza directamente o registo oficial do cliente no SIGESC Central.
+              Actualiza directamente o registo oficial do cliente no Sistema Central.
             </p>
             <div className="font-ui mt-4 space-y-3 text-sm">
               <input
@@ -552,10 +552,10 @@ export function CustomersClient({
                   checked={editStatus}
                   onChange={(e) => setEditStatus(e.target.checked)}
                 />
-                Cliente activo no SIGESC
+                Cliente activo no sistema central
               </label>
               <Button type="submit" disabled={pending} className="w-full">
-                {pending ? "A guardar…" : "Guardar alterações no SIGESC"}
+                {pending ? "A guardar…" : "Guardar alterações no sistema central"}
               </Button>
             </div>
           </form>
@@ -564,7 +564,7 @@ export function CustomersClient({
         <form onSubmit={createCustomer} className="surface h-fit p-5">
           <h3 className="text-lg font-semibold text-ink-900">Criar cliente central</h3>
           <p className="font-ui mt-1 text-xs text-stone-500">
-            Cliente financeiro no SIGESC — pode existir sem hóspede operacional.
+            Cliente financeiro no sistema central — pode existir sem hóspede operacional.
           </p>
           <div className="font-ui mt-4 space-y-3 text-sm">
             <input
@@ -612,7 +612,7 @@ export function CustomersClient({
               className="h-10 w-full rounded-md border border-sand-200 px-3"
             />
             <Button type="submit" disabled={pending} className="w-full">
-              Criar no SIGESC
+              Criar no sistema central
             </Button>
           </div>
         </form>

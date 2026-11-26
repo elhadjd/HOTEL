@@ -18,7 +18,7 @@ export default async function OnboardingPage({
         className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,_rgba(17,26,46,0.08),_transparent_50%),linear-gradient(160deg,#f7f5f1_0%,#e8f5f2_100%)]"
       />
       <div className="surface animate-fade-up p-8">
-        <p className="font-ui text-xs uppercase tracking-[0.22em] text-stone-400">SIGESC Aggregate</p>
+        <p className="font-ui text-xs uppercase tracking-[0.22em] text-stone-400">API Central</p>
         <h1 className="mt-2 text-3xl font-semibold text-ink-900">{t("auth.onboarding")}</h1>
         <OnboardingForm
           labels={{

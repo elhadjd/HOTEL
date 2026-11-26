@@ -21,7 +21,7 @@ export default async function ResetPasswordPage({
         className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(165deg,#f7f5f1_0%,#e8f0ee_100%)]"
       />
       <div className="surface animate-fade-up p-8">
-        <p className="font-ui text-xs uppercase tracking-[0.22em] text-stone-400">SIGESC</p>
+        <p className="font-ui text-xs uppercase tracking-[0.22em] text-stone-400">Sistema Central</p>
         <h1 className="mt-2 text-3xl font-semibold text-ink-900">{t("auth.resetTitle")}</h1>
         {!token ? (
           <p className="font-ui mt-6 text-sm text-danger">{t("auth.resetInvalid")}</p>

@@ -230,7 +230,7 @@ export function StayWorkspaceClient({
       if (data.reconciliationRequired) {
         setError(
           data.message ??
-            "Consumo registado localmente, mas envio ao SIGESC requer reconciliação.",
+            "Consumo registado localmente, mas envio ao sistema central requer reconciliação.",
         );
       } else {
         setMessage(data.message ?? "Consumo registado");
@@ -393,7 +393,7 @@ export function StayWorkspaceClient({
 
   function createAndSubmitSigescDocument() {
     if (unbilledMappedLines.length === 0) {
-      setError("Não existem lançamentos mapeados por enviar ao SIGESC.");
+      setError("Não existem lançamentos mapeados por enviar ao sistema central.");
       return;
     }
     setError(null);
@@ -417,7 +417,7 @@ export function StayWorkspaceClient({
       });
       const draftData = await draftRes.json().catch(() => ({}));
       if (!draftRes.ok) {
-        setError(draftData.error ?? "Falha ao criar rascunho SIGESC");
+        setError(draftData.error ?? "Falha ao criar rascunho central");
         return;
       }
       const invId = draftData.invoice?.id as string;
@@ -427,7 +427,7 @@ export function StayWorkspaceClient({
       const submitData = await submitRes.json().catch(() => ({}));
       if (!submitRes.ok) {
         setError(
-          `Rascunho criado, mas submissão ao SIGESC falhou: ${submitData.error ?? "erro remoto"}`,
+          `Rascunho criado, mas submissão ao sistema central falhou: ${submitData.error ?? "erro remoto"}`,
         );
         router.refresh();
         return;
@@ -435,10 +435,10 @@ export function StayWorkspaceClient({
       if (submitData.reconciliationRequired) {
         setError(
           submitData.warning ??
-            "Documento ficou em reconciliação pendente no SIGESC — verifique antes de reenviar.",
+            "Documento ficou em reconciliação pendente no sistema central — verifique antes de reenviar.",
         );
       } else {
-        setMessage(`${docState} criada e confirmada no SIGESC (${submitData.invoice?.saleKey ?? invId}).`);
+        setMessage(`${docState} criada e confirmada no sistema central (${submitData.invoice?.saleKey ?? invId}).`);
       }
       router.refresh();
     });
@@ -453,11 +453,11 @@ export function StayWorkspaceClient({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error ?? "Falha ao sincronizar documento com o SIGESC");
+        setError(data.error ?? "Falha ao sincronizar documento com o sistema central");
         return;
       }
       setMessage(
-        `Documento actualizado do SIGESC: estado ${data.invoice?.centralState ?? data.invoice?.status ?? "—"}.`,
+        `Documento actualizado do sistema central: estado ${data.invoice?.centralState ?? data.invoice?.status ?? "—"}.`,
       );
       router.refresh();
     });
@@ -474,7 +474,7 @@ export function StayWorkspaceClient({
           </p>
           <div className="mt-2 flex flex-wrap gap-1">
             <StatusPill value={stay.status} />
-            <StatusPill value={linked ? "Cliente SIGESC" : "Sem cliente"} />
+            <StatusPill value={linked ? "Cliente central" : "Sem cliente"} />
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -563,7 +563,7 @@ export function StayWorkspaceClient({
                 onChange={(e) => setCompanionGuestId(e.target.value)}
                 className="h-9 flex-1 rounded-md border border-sand-200 bg-white px-2 text-xs"
               >
-                <option value="">Adicionar acompanhante ligado ao SIGESC…</option>
+                <option value="">Adicionar acompanhante ligado ao sistema central…</option>
                 {availableCompanions.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.name}
@@ -663,7 +663,7 @@ export function StayWorkspaceClient({
           {active && linked && unbilledMappedLines.length > 0 ? (
             <div className="font-ui mt-4 space-y-2 border-t border-sand-100 pt-3">
               <p className="text-xs text-stone-600">
-                {unbilledMappedLines.length} linha(s) mapeada(s) pronta(s) para envio ao SIGESC.
+                {unbilledMappedLines.length} linha(s) mapeada(s) pronta(s) para envio ao sistema central.
               </p>
               <div className="flex gap-2">
                 <select
@@ -681,7 +681,7 @@ export function StayWorkspaceClient({
                   onClick={createAndSubmitSigescDocument}
                   className="flex-1"
                 >
-                  Emitir no SIGESC
+                  Emitir no sistema central
                 </Button>
               </div>
             </div>

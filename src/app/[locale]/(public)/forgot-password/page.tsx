@@ -18,7 +18,7 @@ export default async function ForgotPasswordPage({
         className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(165deg,#f7f5f1_0%,#ece4d8_100%)]"
       />
       <div className="surface animate-fade-up p-8">
-        <p className="font-ui text-xs uppercase tracking-[0.22em] text-stone-400">SIGESC</p>
+        <p className="font-ui text-xs uppercase tracking-[0.22em] text-stone-400">Sistema Central</p>
         <h1 className="mt-2 text-3xl font-semibold text-ink-900">{t("auth.forgotPassword")}</h1>
         <p className="font-ui mt-2 text-sm text-stone-500">{t("auth.forgotHelp")}</p>
         <ForgotPasswordForm

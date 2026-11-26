@@ -1,6 +1,6 @@
 {
   "brand": {
-    "name": "SIGESC Hotelaria",
+    "name": "Hotelaria PMS",
     "tagline": "Intelligence opérationnelle pour l’hôtellerie premium"
   },
   "nav": {
@@ -18,11 +18,11 @@
     "rates": "Tarifs",
     "reports": "Rapports",
     "staff": "Équipe",
-    "integrations": "Intégration SIGESC",
+    "integrations": "Système Central",
     "settings": "Paramètres",
-    "centralCustomers": "Clients SIGESC",
-    "centralProducts": "Catalogue SIGESC",
-    "centralInvoices": "Devis SIGESC",
+    "centralCustomers": "Clients Centraux",
+    "centralProducts": "Catalogue Central",
+    "centralInvoices": "Factures et Devis",
     "stays": "Séjours",
     "frontDesk": "Front Desk",
     "roomOperations": "Tableau des chambres",
@@ -47,7 +47,7 @@
   },
   "auth": {
     "login": "Connexion",
-    "loginSubtitle": "Accédez à votre compte institutionnel SIGESC Hotelaria",
+    "loginSubtitle": "Accédez à votre compte institutionnel Hotelaria PMS",
     "loginError": "Email ou mot de passe invalide",
     "email": "Email",
     "password": "Mot de passe",
@@ -63,7 +63,7 @@
     "savePassword": "Enregistrer le mot de passe",
     "resetTitle": "Réinitialiser le mot de passe",
     "resetInvalid": "Lien de récupération manquant ou invalide.",
-    "onboardingWelcome": "Connectez votre entreprise déjà enregistrée sur SIGESC central avec la clé Aggregate officielle.",
+    "onboardingWelcome": "Connectez votre entreprise déjà enregistrée sur Sistema Central central avec la clé Aggregate officielle.",
     "onboardingHelp": "La clé mca_ est validée côté serveur. Elle n’est jamais conservée dans le navigateur après l’envoi.",
     "apiKey": "Clé API Aggregate",
     "validateKey": "Valider la clé",
@@ -80,7 +80,7 @@
   },
   "dashboard": {
     "title": "Opérations du jour",
-    "subtitle": "Indicateurs opérationnels issus des registres de l’hôtel — sans métriques financières SIGESC.",
+    "subtitle": "Indicateurs opérationnels issus des registres de l’hôtel — sans métriques financières Sistema Central.",
     "totalRooms": "Chambres",
     "available": "Disponibles",
     "occupied": "Occupées",

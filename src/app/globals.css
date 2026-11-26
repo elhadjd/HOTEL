@@ -63,8 +63,9 @@
   --color-danger: var(--danger);
   --color-warning: var(--warning);
   --color-success: var(--success);
-  --font-sans: var(--font-display);
+  --font-sans: var(--font-ui);
   --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
   --radius-lg: var(--radius);
 }
 
@@ -82,12 +83,30 @@ body {
     radial-gradient(900px 500px at 100% 0%, rgb(17 26 46 / 0.06), transparent 50%),
     var(--background);
   color: var(--foreground);
-  font-family: var(--font-display), "Iowan Old Style", "Palatino Linotype", serif;
+  font-family: var(--font-ui), "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   min-height: 100vh;
 }
 
+h1,
+h2,
+h3,
+.font-display {
+  font-family: var(--font-display), "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  letter-spacing: -0.02em;
+}
+
 .font-ui {
-  font-family: var(--font-ui), "Segoe UI", sans-serif;
+  font-family: var(--font-ui), "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.font-mono {
+  font-family: var(--font-mono), "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
 
 @keyframes fade-up {

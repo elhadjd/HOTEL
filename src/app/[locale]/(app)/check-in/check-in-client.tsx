@@ -66,7 +66,7 @@ function eligibility(a: Arrival, chosenRoomId?: string | null) {
     reasons.push("Quarto em manutenção / fora de serviço");
   }
   if (room && room.occupancyStatus === "OCCUPIED") reasons.push("Quarto ocupado");
-  if (!linked) reasons.push("Hóspede sem cliente SIGESC ligado");
+  if (!linked) reasons.push("Hóspede sem cliente central ligado");
   if (a.rooms.length <= 1 && room?.capacity != null && totalGuests > room.capacity) {
     reasons.push(`Capacidade excedida (${totalGuests} hóspedes > ${room.capacity})`);
   }
@@ -153,7 +153,7 @@ export function CheckInClient({
           <h1 className="mt-1 text-3xl font-semibold text-ink-900">Check-in guiado</h1>
           <p className="font-ui mt-1 max-w-xl text-sm text-stone-600">
             Suporta reservas individuais e multi-quarto. O check-in lança automaticamente o
-            alojamento na conta da estadia; documentos fiscais são geridos apenas no SIGESC.
+            alojamento na conta da estadia; documentos fiscais são geridos apenas no sistema central.
           </p>
         </div>
         <Button type="button" variant="secondary" disabled={pending} onClick={refresh}>
@@ -341,7 +341,7 @@ export function CheckInClient({
         <div className="surface p-5">
           <h2 className="text-lg font-semibold">Check-in concluído</h2>
           <p className="font-ui mt-2 text-sm text-stone-600">
-            Estadia criada. Não implica pagamento nem publicação de documento SIGESC.
+            Estadia criada. Não implica pagamento nem publicação de documento Sistema Central.
           </p>
           {resultStayId ? (
             <div className="mt-4 flex flex-wrap gap-3">
