@@ -9,6 +9,7 @@ import {
 import { AggregateApiError } from "./types";
 import { encryptAggregateKey } from "./crypto";
 import { updateCentralProduct } from "./products/products-service";
+import { mapAggregateError } from "./connection-context";
 import {
   extractInvoicePayments,
   publishInvoice,
@@ -618,6 +619,15 @@ describe("Service-layer price sync, publishInvoice, and settleInvoicePayment", (
     expect(payTimeout.reconciliationRequired).toBe(true);
     expect(invoiceRecord.status).toBe("RECONCILIATION_REQUIRED");
 
+    // 3b) Concurrent payment with a DIFFERENT idempotencyKey while previous attempt is still unresolved is blocked (409)
+    await expect(
+      settleInvoicePayment(fakePrisma, TEST_CTX, "inv-local-1", {
+        amount: 10000,
+        paymentMethodId: 1,
+        idempotencyKey: "pay-svc-CONCURRENT-DIFFERENT-KEY",
+      }),
+    ).rejects.toThrow(/Another payment is in progress/i);
+
     // 4) Retry with the SAME idempotency key reconciles cleanly without double-charging
     const payReconciled = await settleInvoicePayment(fakePrisma, TEST_CTX, "inv-local-1", {
       amount: 10000,
@@ -658,5 +668,32 @@ describe("Service-layer price sync, publishInvoice, and settleInvoicePayment", (
         idempotencyKey: "pay-svc-extra",
       }),
     ).rejects.toThrow(/already fully paid/i);
+  });
+
+  it("maps invoice publish/settlement business conflicts to 409 and overpayment errors to 422", () => {
+    expect(
+      mapAggregateError(new Error('Document is already in state "Publicado" and cannot be published again.')),
+    ).toMatchObject({ status: 409 });
+    expect(
+      mapAggregateError(new Error('Cannot record payment on cancelled invoice ("Anulado").')),
+    ).toMatchObject({ status: 409 });
+    expect(
+      mapAggregateError(new Error("Invoice is already fully paid (rest_payable = 0).")),
+    ).toMatchObject({ status: 409 });
+    expect(
+      mapAggregateError(
+        new Error("Another payment is in progress for this document. Wait for it to finish."),
+      ),
+    ).toMatchObject({ status: 409 });
+    expect(
+      mapAggregateError(
+        new Error('Central document status "Publicado" is read-only. Adding items or editing is not allowed.'),
+      ),
+    ).toMatchObject({ status: 409 });
+    expect(
+      mapAggregateError(
+        new Error("Payment amount (30000.00) exceeds central remaining balance (20000.00)."),
+      ),
+    ).toMatchObject({ status: 422 });
   });
 });

@@ -124,7 +124,16 @@ export function mapAggregateError(err: unknown): { status: number; message: stri
   if (err instanceof Error) {
     const msg = err.message;
     if (/not found/i.test(msg)) return { status: 404, message: msg };
-    if (/already linked|conflict|concurrent/i.test(msg)) return { status: 409, message: msg };
+    if (
+      /already linked|already in state|already fully paid|conflict|concurrent|in progress|read-only|cannot record payment/i.test(
+        msg,
+      )
+    ) {
+      return { status: 409, message: msg };
+    }
+    if (/exceeds|cannot be negative|greater than zero/i.test(msg)) {
+      return { status: 422, message: msg };
+    }
     if (/required|invalid|must|only cotação|authorize|mapping|quantity/i.test(msg)) {
       return { status: 400, message: msg };
     }

@@ -1112,6 +1112,36 @@ function isAmbiguousNetworkError(err: unknown): boolean {
   return /timeout|timed out|ETIMEDOUT|AbortError|unavailable|network/i.test(message);
 }
 
+const IN_FLIGHT_MUTATION_WINDOW_MS = 30_000;
+
+function hasUnresolvedOtherPendingAttempt(
+  attempts: Array<{
+    attemptNo: number;
+    outcome: string;
+    responseSummary: unknown;
+    createdAt: Date;
+  }>,
+  pendingOutcome: string,
+  terminalOutcomes: readonly string[],
+  currentToken: string,
+  windowMs = IN_FLIGHT_MUTATION_WINDOW_MS,
+): boolean {
+  const terminalSet = new Set(terminalOutcomes);
+  return [...attempts].reverse().some((a) => {
+    if (a.outcome !== pendingOutcome) return false;
+    const token = attemptTokenOf(a);
+    if (!token || token === currentToken) return false;
+    const resolved = attempts.some(
+      (later) =>
+        later.attemptNo > a.attemptNo &&
+        attemptTokenOf(later) === token &&
+        terminalSet.has(later.outcome),
+    );
+    if (resolved) return false;
+    return Date.now() - a.createdAt.getTime() < windowMs;
+  });
+}
+
 /**
  * Publish/convert a Cotação or Proforma in SIGESC into an official immutable fiscal invoice (e.g. FT).
  * Enforces idempotency via stable idempotencyKey and marks RECONCILIATION_REQUIRED on ambiguous timeout.
@@ -1149,9 +1179,25 @@ export async function publishInvoice(
     };
   }
 
+  if (
+    hasUnresolvedOtherPendingAttempt(
+      invoice.attempts,
+      "PUBLISH_PENDING",
+      ["PUBLISH_OK", "PUBLISH_FAILED"],
+      attemptToken,
+    )
+  ) {
+    throw new Error(
+      "Another publish operation is in progress for this document. Retry shortly.",
+    );
+  }
+
   // Verify live central status before mutation
   const fresh = await refreshInvoiceFromCentral(prisma, ctx, invoiceId);
-  if (fresh.centralState === "Publicado" || fresh.centralState === "Pago") {
+  if (
+    PAYABLE_CENTRAL_STATES.has(fresh.centralState ?? "") ||
+    PAID_CENTRAL_STATES.has(fresh.centralState ?? "")
+  ) {
     const hadPendingSameToken = invoice.attempts.some(
       (a) => a.outcome === "PUBLISH_PENDING" && attemptTokenOf(a) === attemptToken,
     );
@@ -1328,6 +1374,19 @@ export async function settleInvoicePayment(
       reconciliationRequired: false as const,
       payment: null,
     };
+  }
+
+  if (
+    hasUnresolvedOtherPendingAttempt(
+      invoice.attempts,
+      "PAYMENT_PENDING",
+      ["PAYMENT_OK", "PAYMENT_FAILED"],
+      idempotencyKey,
+    )
+  ) {
+    throw new Error(
+      "Another payment is in progress for this document. Wait for it to finish or refresh central status before retrying.",
+    );
   }
 
   // Always verify live central state & rest_payable before mutating.

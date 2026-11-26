@@ -6,7 +6,7 @@ VALUES (
   UUID(),
   'integrations.invoices.settle',
   'integrations',
-  'invoices.settle',
+  'invoices_settle',
   'Publish and settle (record payments on) SIGESC invoices directly from HOTEL'
 );
 
