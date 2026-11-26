@@ -2,7 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FormDrawer } from "@/components/ui/form-drawer";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 
 export function CreateRoomForm({
@@ -13,6 +15,7 @@ export function CreateRoomForm({
   categories: Array<{ id: string; name: string; code?: string | null }>;
 }) {
   const router = useRouter();
+  const [open, setOpen] = useState(false);
   const [categoryId, setCategoryId] = useState(categories[0]?.id ?? "");
   const [code, setCode] = useState("");
   const [floor, setFloor] = useState("");
@@ -34,57 +37,81 @@ export function CreateRoomForm({
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
-        setError(data.error ?? "Failed");
+        setError(data.error ?? "Falha ao criar quarto");
         return;
       }
       setCode("");
       setFloor("");
+      setOpen(false);
       router.refresh();
     });
   }
 
   return (
-    <form onSubmit={onSubmit} className="surface h-fit p-5">
-      <h3 className="text-lg font-semibold text-ink-900">Novo quarto</h3>
-      <div className="font-ui mt-4 space-y-3 text-sm">
-        <div className="block">
-          <span className="text-stone-500">Categoria</span>
-          <SearchableSelect
-            className="mt-1"
-            required
-            options={categories.map((c) => ({
-              value: c.id,
-              label: c.name,
-              keywords: [c.code ?? "", c.name],
-            }))}
-            value={categoryId}
-            onChange={setCategoryId}
-            labels={{ placeholder: "Seleccionar categoria", searchPlaceholder: "Nome / código…" }}
-            clearable={false}
-          />
+    <>
+      <Button type="button" onClick={() => setOpen(true)} className="gap-1.5">
+        <Plus className="h-4 w-4" />
+        Novo quarto
+      </Button>
+
+      <FormDrawer
+        open={open}
+        onClose={() => setOpen(false)}
+        eyebrow="Quartos & Inventário"
+        title="Novo quarto"
+        subtitle="Associe o quarto a uma categoria operacional e defina o código e andar."
+        size="md"
+        onSubmit={onSubmit}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={pending || !categoryId}>
+              {pending ? "A criar…" : "Criar quarto"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="surface space-y-4 p-4 text-sm">
+          <div className="block">
+            <span className="text-stone-600">Categoria *</span>
+            <SearchableSelect
+              className="mt-1"
+              required
+              options={categories.map((c) => ({
+                value: c.id,
+                label: c.name,
+                keywords: [c.code ?? "", c.name],
+              }))}
+              value={categoryId}
+              onChange={setCategoryId}
+              labels={{ placeholder: "Seleccionar categoria", searchPlaceholder: "Nome / código…" }}
+              clearable={false}
+            />
+          </div>
+          <label className="block">
+            <span className="text-stone-600">Código do quarto *</span>
+            <input
+              required
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="Ex.: 101, 204-A, Suite-01"
+              className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
+            />
+          </label>
+          <label className="block">
+            <span className="text-stone-600">Andar</span>
+            <input
+              value={floor}
+              onChange={(e) => setFloor(e.target.value)}
+              placeholder="Ex.: 1, 2, Rés-do-chão"
+              className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
+            />
+          </label>
+          {error ? <p className="text-xs font-medium text-danger">{error}</p> : null}
         </div>
-        <label className="block">
-          <span className="text-stone-500">Código</span>
-          <input
-            required
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
-          />
-        </label>
-        <label className="block">
-          <span className="text-stone-500">Andar</span>
-          <input
-            value={floor}
-            onChange={(e) => setFloor(e.target.value)}
-            className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
-          />
-        </label>
-        {error ? <p className="text-danger">{error}</p> : null}
-        <Button type="submit" className="w-full" disabled={pending || !categoryId}>
-          {pending ? "…" : "Criar quarto"}
-        </Button>
-      </div>
-    </form>
+      </FormDrawer>
+    </>
   );
 }

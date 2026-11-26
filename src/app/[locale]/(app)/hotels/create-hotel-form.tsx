@@ -2,10 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FormDrawer } from "@/components/ui/form-drawer";
 
 export function CreateHotelForm() {
   const router = useRouter();
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [city, setCity] = useState("");
@@ -23,51 +26,72 @@ export function CreateHotelForm() {
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
-        setError(data.error ?? "Failed");
+        setError(data.error ?? "Falha ao criar hotel");
         return;
       }
       setName("");
       setCode("");
       setCity("");
+      setOpen(false);
       router.refresh();
     });
   }
 
   return (
-    <form onSubmit={onSubmit} className="surface animate-fade-up p-5">
-      <h3 className="text-lg font-semibold text-ink-900">Novo hotel</h3>
-      <div className="font-ui mt-4 space-y-3 text-sm">
-        <label className="block">
-          <span className="text-stone-500">Nome</span>
-          <input
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 outline-none ring-teal-500/30 focus:ring-2"
-          />
-        </label>
-        <label className="block">
-          <span className="text-stone-500">Código</span>
-          <input
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder="Opcional"
-            className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 outline-none ring-teal-500/30 focus:ring-2"
-          />
-        </label>
-        <label className="block">
-          <span className="text-stone-500">Cidade</span>
-          <input
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-            className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 outline-none ring-teal-500/30 focus:ring-2"
-          />
-        </label>
-        {error ? <p className="text-danger">{error}</p> : null}
-        <Button type="submit" className="w-full" disabled={pending}>
-          {pending ? "…" : "Criar hotel"}
-        </Button>
-      </div>
-    </form>
+    <>
+      <Button type="button" onClick={() => setOpen(true)} className="gap-1.5">
+        <Plus className="h-4 w-4" />
+        Novo hotel
+      </Button>
+
+      <FormDrawer
+        open={open}
+        onClose={() => setOpen(false)}
+        eyebrow="Estabelecimento"
+        title="Novo hotel"
+        size="md"
+        onSubmit={onSubmit}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={pending}>
+              {pending ? "A criar…" : "Criar hotel"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="surface space-y-4 p-4 text-sm">
+          <label className="block">
+            <span className="text-stone-600">Nome *</span>
+            <input
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
+            />
+          </label>
+          <label className="block">
+            <span className="text-stone-600">Código</span>
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="Opcional"
+              className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 font-mono"
+            />
+          </label>
+          <label className="block">
+            <span className="text-stone-600">Cidade</span>
+            <input
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
+            />
+          </label>
+          {error ? <p className="text-xs font-medium text-danger">{error}</p> : null}
+        </div>
+      </FormDrawer>
+    </>
   );
 }

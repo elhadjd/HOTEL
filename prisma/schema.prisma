@@ -600,39 +600,60 @@ model RoomImage {
 // ─── Guests ──────────────────────────────────────────────────────────────────
 
 model Guest {
-  id            String   @id @default(uuid())
-  institutionId String   @map("institution_id")
-  firstName     String   @map("first_name") @db.VarChar(120)
-  lastName      String   @map("last_name") @db.VarChar(120)
-  email         String?  @db.VarChar(255)
-  phone         String?  @db.VarChar(40)
-  country       String?  @db.VarChar(120)
-  preferencesJson Json?  @map("preferences_json")
-  notes         String?  @db.VarChar(500)
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id                    String    @id @default(uuid())
+  institutionId         String    @map("institution_id")
+  salutation            String?   @db.VarChar(32)
+  firstName             String    @map("first_name") @db.VarChar(120)
+  lastName              String    @map("last_name") @db.VarChar(120)
+  customerType          String    @default("individual") @map("customer_type") @db.VarChar(32)
+  companyName           String?   @map("company_name") @db.VarChar(191)
+  nif                   String?   @db.VarChar(64)
+  email                 String?   @db.VarChar(255)
+  phone                 String?   @db.VarChar(40)
+  secondaryPhone        String?   @map("secondary_phone") @db.VarChar(40)
+  birthDate             DateTime? @map("birth_date") @db.Date
+  gender                String?   @db.VarChar(24)
+  nationality           String?   @db.VarChar(120)
+  preferredLanguage     String?   @map("preferred_language") @db.VarChar(16)
+  address               String?   @db.VarChar(255)
+  city                  String?   @db.VarChar(120)
+  province              String?   @db.VarChar(120)
+  postalCode            String?   @map("postal_code") @db.VarChar(32)
+  country               String?   @db.VarChar(120)
+  vipTier               String    @default("STANDARD") @map("vip_tier") @db.VarChar(32)
+  dietaryRestrictions   String?   @map("dietary_restrictions") @db.VarChar(255)
+  roomPreferences       String?   @map("room_preferences") @db.VarChar(255)
+  emergencyContactName  String?   @map("emergency_contact_name") @db.VarChar(120)
+  emergencyContactPhone String?   @map("emergency_contact_phone") @db.VarChar(40)
+  marketingOptIn        Boolean   @default(false) @map("marketing_opt_in")
+  preferencesJson       Json?     @map("preferences_json")
+  notes                 String?   @db.VarChar(500)
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
-  institution      Institution           @relation(fields: [institutionId], references: [id], onDelete: Cascade)
-  documents        GuestDocument[]
-  customerMapping  GuestCustomerMapping?
+  institution       Institution           @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  documents         GuestDocument[]
+  customerMapping   GuestCustomerMapping?
   reservationGuests ReservationGuest[]
   stays             Stay[]
   stayCompanions    StayCompanion[]
-  billedFolios      StayFolio[] @relation("FolioPayerGuest")
+  billedFolios      StayFolio[]           @relation("FolioPayerGuest")
 
   @@index([institutionId, lastName, firstName])
   @@index([institutionId, email])
+  @@index([institutionId, nif])
   @@map("guests")
 }
 
 model GuestDocument {
-  id         String    @id @default(uuid())
-  guestId    String    @map("guest_id")
-  type       String    @db.VarChar(64)
-  reference  String    @db.VarChar(128)
-  issuedAt   DateTime? @map("issued_at")
-  expiresAt  DateTime? @map("expires_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
+  id             String    @id @default(uuid())
+  guestId        String    @map("guest_id")
+  type           String    @db.VarChar(64)
+  reference      String    @db.VarChar(128)
+  issuingCountry String?   @map("issuing_country") @db.VarChar(120)
+  issuedAt       DateTime? @map("issued_at")
+  expiresAt      DateTime? @map("expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
 
   guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
 

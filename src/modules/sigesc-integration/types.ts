@@ -167,6 +167,8 @@ export type AggregateCustomerWriteInput = {
   country_id?: number | null;
   customer_type?: string | null;
   customer_code?: string | null;
+  sponsor_code?: string | null;
+  sponsor_id?: number | null;
   credit_limit?: number | null;
   account_balance?: number | null;
   terms_payment_id?: number | null;

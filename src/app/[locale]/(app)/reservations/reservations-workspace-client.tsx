@@ -14,9 +14,9 @@ import {
   Search,
   Sparkles,
   UserX,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FormDrawer } from "@/components/ui/form-drawer";
 import { StatusPill } from "@/components/ui/status-pill";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -796,368 +796,336 @@ export function ReservationsWorkspaceClient({
       </div>
 
       {/* Create Reservation Drawer */}
-      {createOpen ? (
-        <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-ink-950/45">
-          <button
-            type="button"
-            className="absolute inset-0 cursor-default"
-            aria-label="Fechar"
-            onClick={() => setCreateOpen(false)}
-          />
-          <div className="relative flex h-full w-full max-w-xl flex-col bg-sand-50 shadow-2xl animate-fade-up">
-            <div className="flex items-center justify-between border-b border-sand-200 bg-white px-6 py-4">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-teal-700">
-                  Reservas
-                </p>
-                <h3 className="text-xl font-semibold text-ink-900">Nova reserva</h3>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => setCreateOpen(false)}
-                aria-label="Fechar"
-              >
-                <X className="h-4 w-4" />
-              </Button>
+      <FormDrawer
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        eyebrow="Reservas"
+        title="Nova reserva"
+        subtitle="Defina datas, horários de entrada/saída, quarto e hóspede."
+        size="lg"
+        onSubmit={createReservation}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={() => setCreateOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={pending}>
+              {pending ? "A criar…" : "Criar reserva"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-5 text-sm">
+          {/* Dates */}
+          <section className="surface space-y-3 p-4">
+            <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
+              1. Datas da estadia
+            </h4>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="text-stone-600">Data de entrada *</span>
+                <input
+                  type="date"
+                  required
+                  min={allowRetroactive ? undefined : todayIso}
+                  value={arrivalDate}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setArrivalDate(next);
+                    if (departureDate <= next) {
+                      setDepartureDate(addDaysIso(next, 1));
+                    }
+                  }}
+                  className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 tabular-nums"
+                />
+              </label>
+              <label className="block">
+                <span className="text-stone-600">Data de saída *</span>
+                <input
+                  type="date"
+                  required
+                  min={addDaysIso(arrivalDate || todayIso, 1)}
+                  value={departureDate}
+                  onChange={(e) => setDepartureDate(e.target.value)}
+                  className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 tabular-nums"
+                />
+              </label>
+            </div>
+            {canRetroactive ? (
+              <label className="flex items-center gap-2 pt-1 text-xs text-stone-600">
+                <input
+                  type="checkbox"
+                  checked={allowRetroactive}
+                  onChange={(e) => setAllowRetroactive(e.target.checked)}
+                  className="h-4 w-4 accent-teal-600"
+                />
+                Permitir registo retroativo (datas anteriores a hoje, apenas para histórico)
+              </label>
+            ) : null}
+          </section>
+
+          {/* Schedule times */}
+          <section className="surface space-y-4 p-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
+                2. Horários de entrada e saída
+              </h4>
+              <span className="text-[11px] text-stone-500">
+                Padrão: {schedulePolicy.checkInTime} → {schedulePolicy.checkOutTime}
+              </span>
             </div>
 
-            <form onSubmit={createReservation} className="flex min-h-0 flex-1 flex-col">
-              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5 text-sm">
-                {/* Dates */}
-                <section className="surface space-y-3 p-4">
-                  <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
-                    1. Datas da estadia
-                  </h4>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="block">
-                      <span className="text-stone-600">Data de entrada *</span>
-                      <input
-                        type="date"
-                        required
-                        min={allowRetroactive ? undefined : todayIso}
-                        value={arrivalDate}
-                        onChange={(e) => {
-                          const next = e.target.value;
-                          setArrivalDate(next);
-                          if (departureDate <= next) {
-                            setDepartureDate(addDaysIso(next, 1));
-                          }
-                        }}
-                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 tabular-nums"
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="text-stone-600">Data de saída *</span>
-                      <input
-                        type="date"
-                        required
-                        min={addDaysIso(arrivalDate || todayIso, 1)}
-                        value={departureDate}
-                        onChange={(e) => setDepartureDate(e.target.value)}
-                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 tabular-nums"
-                      />
-                    </label>
-                  </div>
-                  {canRetroactive ? (
-                    <label className="flex items-center gap-2 pt-1 text-xs text-stone-600">
-                      <input
-                        type="checkbox"
-                        checked={allowRetroactive}
-                        onChange={(e) => setAllowRetroactive(e.target.checked)}
-                        className="h-4 w-4 accent-teal-600"
-                      />
-                      Permitir registo retroativo (datas anteriores a hoje, apenas para histórico)
-                    </label>
-                  ) : null}
-                </section>
-
-                {/* Schedule times */}
-                <section className="surface space-y-4 p-4">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
-                      2. Horários de entrada e saída
-                    </h4>
-                    <span className="text-[11px] text-stone-500">
-                      Padrão: {schedulePolicy.checkInTime} → {schedulePolicy.checkOutTime}
-                    </span>
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div>
-                      <label className="block">
-                        <span className="text-stone-600">Hora prevista de check-in</span>
-                        <input
-                          type="time"
-                          value={checkInTime}
-                          onChange={(e) => setCheckInTime(e.target.value)}
-                          className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 font-mono"
-                        />
-                      </label>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {[
-                          { label: "Early 11:00", value: "11:00" },
-                          { label: `Padrão ${schedulePolicy.checkInTime}`, value: schedulePolicy.checkInTime },
-                          { label: "Noite 20:00", value: "20:00" },
-                        ].map((preset) => (
-                          <button
-                            key={preset.value}
-                            type="button"
-                            onClick={() => setCheckInTime(preset.value)}
-                            className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
-                              checkInTime === preset.value
-                                ? "bg-ink-900 text-white"
-                                : "bg-sand-100 text-stone-600 hover:bg-sand-200"
-                            }`}
-                          >
-                            {preset.label}
-                          </button>
-                        ))}
-                      </div>
-                      {isCreateEarlyCheckIn ? (
-                        <p className="mt-2 inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-900">
-                          <Sparkles className="h-3 w-3" />
-                          Early Check-in (antes das {schedulePolicy.checkInTime})
-                        </p>
-                      ) : null}
-                    </div>
-
-                    <div>
-                      <label className="block">
-                        <span className="text-stone-600">Hora prevista de check-out</span>
-                        <input
-                          type="time"
-                          value={checkOutTime}
-                          onChange={(e) => setCheckOutTime(e.target.value)}
-                          className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 font-mono"
-                        />
-                      </label>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {[
-                          { label: `Padrão ${schedulePolicy.checkOutTime}`, value: schedulePolicy.checkOutTime },
-                          { label: "Late 15:00", value: "15:00" },
-                          { label: `Máx ${schedulePolicy.lateCheckOutUntil}`, value: schedulePolicy.lateCheckOutUntil },
-                        ].map((preset) => (
-                          <button
-                            key={preset.value}
-                            type="button"
-                            onClick={() => setCheckOutTime(preset.value)}
-                            className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
-                              checkOutTime === preset.value
-                                ? "bg-ink-900 text-white"
-                                : "bg-sand-100 text-stone-600 hover:bg-sand-200"
-                            }`}
-                          >
-                            {preset.label}
-                          </button>
-                        ))}
-                      </div>
-                      {isCreateLateCheckOut ? (
-                        <p className="mt-2 inline-flex items-center gap-1 rounded bg-teal-100 px-2 py-1 text-[11px] font-medium text-teal-900">
-                          <Clock className="h-3 w-3" />
-                          Late Check-out (após as {schedulePolicy.checkOutTime})
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                </section>
-
-                {/* Room & Guest */}
-                <section className="surface space-y-3 p-4">
-                  <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
-                    3. Quarto e hóspede
-                  </h4>
-                  <div className="block">
-                    <span className="text-stone-600">Quarto</span>
-                    <SearchableSelect
-                      className="mt-1"
-                      options={rooms.map((rm) => ({
-                        value: rm.id,
-                        label: rm.code,
-                        keywords: [rm.code, rm.categoryName ?? "", rm.occupancyStatus],
-                        description: [rm.categoryName, rm.occupancyStatus, rm.housekeepingStatus]
-                          .filter(Boolean)
-                          .join(" · "),
-                      }))}
-                      value={roomId}
-                      onChange={setRoomId}
-                      labels={{
-                        placeholder: "Opcional (atribuir quarto)",
-                        searchPlaceholder: "Pesquisar quarto ou categoria…",
-                      }}
-                    />
-                  </div>
-                  <div className="block">
-                    <span className="text-stone-600">Hóspede principal</span>
-                    <SearchableSelect
-                      className="mt-1"
-                      options={guests.map((g) => ({
-                        value: g.id,
-                        label: g.label,
-                        keywords: [g.email ?? "", g.phone ?? ""],
-                        description: [
-                          g.phone || g.email || "",
-                          g.linked ? "Cliente ligado" : "Sem cliente central",
-                        ]
-                          .filter(Boolean)
-                          .join(" · "),
-                      }))}
-                      value={guestId}
-                      onChange={setGuestId}
-                      labels={{
-                        placeholder: "Opcional (seleccionar hóspede)",
-                        searchPlaceholder: "Nome, email ou telefone…",
-                      }}
-                    />
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="block">
-                      <span className="text-stone-600">Adultos</span>
-                      <input
-                        type="number"
-                        min={1}
-                        value={adults}
-                        onChange={(e) => setAdults(e.target.value)}
-                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="text-stone-600">Crianças</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={children}
-                        onChange={(e) => setChildren(e.target.value)}
-                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
-                      />
-                    </label>
-                  </div>
-                  <label className="block">
-                    <span className="text-stone-600">Notas internas / pedidos especiais</span>
-                    <textarea
-                      rows={2}
-                      value={internalNotes}
-                      onChange={(e) => setInternalNotes(e.target.value)}
-                      placeholder="Ex.: Voo chega às 10h30, berço, transferência aeroporto…"
-                      className="mt-1 w-full rounded-md border border-sand-200 bg-white px-3 py-2"
-                    />
-                  </label>
-                </section>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block">
+                  <span className="text-stone-600">Hora prevista de check-in</span>
+                  <input
+                    type="time"
+                    value={checkInTime}
+                    onChange={(e) => setCheckInTime(e.target.value)}
+                    className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 font-mono"
+                  />
+                </label>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {[
+                    { label: "Early 11:00", value: "11:00" },
+                    {
+                      label: `Padrão ${schedulePolicy.checkInTime}`,
+                      value: schedulePolicy.checkInTime,
+                    },
+                    { label: "Noite 20:00", value: "20:00" },
+                  ].map((preset) => (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      onClick={() => setCheckInTime(preset.value)}
+                      className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                        checkInTime === preset.value
+                          ? "bg-ink-900 text-white"
+                          : "bg-sand-100 text-stone-600 hover:bg-sand-200"
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+                {isCreateEarlyCheckIn ? (
+                  <p className="mt-2 inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-900">
+                    <Sparkles className="h-3 w-3" />
+                    Early Check-in (antes das {schedulePolicy.checkInTime})
+                  </p>
+                ) : null}
               </div>
 
-              <div className="flex justify-end gap-2 border-t border-sand-200 bg-white px-6 py-4">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setCreateOpen(false)}
-                >
-                  Cancelar
-                </Button>
-                <Button type="submit" disabled={pending}>
-                  {pending ? "A criar…" : "Criar reserva"}
-                </Button>
+              <div>
+                <label className="block">
+                  <span className="text-stone-600">Hora prevista de check-out</span>
+                  <input
+                    type="time"
+                    value={checkOutTime}
+                    onChange={(e) => setCheckOutTime(e.target.value)}
+                    className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 font-mono"
+                  />
+                </label>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {[
+                    {
+                      label: `Padrão ${schedulePolicy.checkOutTime}`,
+                      value: schedulePolicy.checkOutTime,
+                    },
+                    { label: "Late 15:00", value: "15:00" },
+                    {
+                      label: `Máx ${schedulePolicy.lateCheckOutUntil}`,
+                      value: schedulePolicy.lateCheckOutUntil,
+                    },
+                  ].map((preset) => (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      onClick={() => setCheckOutTime(preset.value)}
+                      className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                        checkOutTime === preset.value
+                          ? "bg-ink-900 text-white"
+                          : "bg-sand-100 text-stone-600 hover:bg-sand-200"
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+                {isCreateLateCheckOut ? (
+                  <p className="mt-2 inline-flex items-center gap-1 rounded bg-teal-100 px-2 py-1 text-[11px] font-medium text-teal-900">
+                    <Clock className="h-3 w-3" />
+                    Late Check-out (após as {schedulePolicy.checkOutTime})
+                  </p>
+                ) : null}
               </div>
-            </form>
-          </div>
+            </div>
+          </section>
+
+          {/* Room & Guest */}
+          <section className="surface space-y-3 p-4">
+            <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
+              3. Quarto e hóspede
+            </h4>
+            <div className="block">
+              <span className="text-stone-600">Quarto</span>
+              <SearchableSelect
+                className="mt-1"
+                options={rooms.map((rm) => ({
+                  value: rm.id,
+                  label: rm.code,
+                  keywords: [rm.code, rm.categoryName ?? "", rm.occupancyStatus],
+                  description: [rm.categoryName, rm.occupancyStatus, rm.housekeepingStatus]
+                    .filter(Boolean)
+                    .join(" · "),
+                }))}
+                value={roomId}
+                onChange={setRoomId}
+                labels={{
+                  placeholder: "Opcional (atribuir quarto)",
+                  searchPlaceholder: "Pesquisar quarto ou categoria…",
+                }}
+              />
+            </div>
+            <div className="block">
+              <span className="text-stone-600">Hóspede principal</span>
+              <SearchableSelect
+                className="mt-1"
+                options={guests.map((g) => ({
+                  value: g.id,
+                  label: g.label,
+                  keywords: [g.email ?? "", g.phone ?? ""],
+                  description: [
+                    g.phone || g.email || "",
+                    g.linked ? "Cliente ligado" : "Sem cliente central",
+                  ]
+                    .filter(Boolean)
+                    .join(" · "),
+                }))}
+                value={guestId}
+                onChange={setGuestId}
+                labels={{
+                  placeholder: "Opcional (seleccionar hóspede)",
+                  searchPlaceholder: "Nome, email ou telefone…",
+                }}
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="text-stone-600">Adultos</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={adults}
+                  onChange={(e) => setAdults(e.target.value)}
+                  className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
+                />
+              </label>
+              <label className="block">
+                <span className="text-stone-600">Crianças</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={children}
+                  onChange={(e) => setChildren(e.target.value)}
+                  className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
+                />
+              </label>
+            </div>
+            <label className="block">
+              <span className="text-stone-600">Notas internas / pedidos especiais</span>
+              <textarea
+                rows={2}
+                value={internalNotes}
+                onChange={(e) => setInternalNotes(e.target.value)}
+                placeholder="Ex.: Voo chega às 10h30, berço, transferência aeroporto…"
+                className="mt-1 w-full rounded-md border border-sand-200 bg-white px-3 py-2"
+              />
+            </label>
+          </section>
         </div>
-      ) : null}
+      </FormDrawer>
 
       {/* Reschedule & Schedule Editor Drawer */}
-      {editing ? (
-        <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-ink-950/45">
-          <button
-            type="button"
-            className="absolute inset-0 cursor-default"
-            aria-label="Fechar"
-            onClick={() => setEditing(null)}
-          />
-          <div className="relative flex h-full w-full max-w-md flex-col bg-sand-50 shadow-2xl animate-fade-up">
-            <div className="flex items-center justify-between border-b border-sand-200 bg-white px-6 py-4">
-              <div>
-                <p className="font-mono text-xs font-semibold text-teal-700">{editing.code}</p>
-                <h3 className="text-xl font-semibold text-ink-900">Datas e horários</h3>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => setEditing(null)}
-                aria-label="Fechar"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <form onSubmit={saveScheduleEdit} className="flex min-h-0 flex-1 flex-col">
-              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5 text-sm">
-                {editing.status !== "CHECKED_IN" ? (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="block">
-                      <span className="text-stone-600">Entrada</span>
-                      <input
-                        type="date"
-                        required
-                        min={canRetroactive ? undefined : todayIso}
-                        value={editArrival}
-                        onChange={(e) => setEditArrival(e.target.value)}
-                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 tabular-nums"
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="text-stone-600">Saída</span>
-                      <input
-                        type="date"
-                        required
-                        min={addDaysIso(editArrival || todayIso, 1)}
-                        value={editDeparture}
-                        onChange={(e) => setEditDeparture(e.target.value)}
-                        className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 tabular-nums"
-                      />
-                    </label>
-                  </div>
-                ) : null}
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="text-stone-600">Hora de check-in</span>
-                    <input
-                      type="time"
-                      value={editCheckIn}
-                      onChange={(e) => setEditCheckIn(e.target.value)}
-                      className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 font-mono"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-stone-600">Hora de check-out</span>
-                    <input
-                      type="time"
-                      value={editCheckOut}
-                      onChange={(e) => setEditCheckOut(e.target.value)}
-                      className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 font-mono"
-                    />
-                  </label>
-                </div>
-                <label className="flex items-center gap-2 pt-1 text-ink-900">
+      <FormDrawer
+        open={Boolean(editing)}
+        onClose={() => setEditing(null)}
+        eyebrow={editing?.code}
+        title="Datas e horários"
+        size="md"
+        onSubmit={saveScheduleEdit}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={() => setEditing(null)}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={pending}>
+              {pending ? "A guardar…" : "Guardar alterações"}
+            </Button>
+          </div>
+        }
+      >
+        {editing ? (
+          <div className="surface space-y-4 p-4 text-sm">
+            {editing.status !== "CHECKED_IN" ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="text-stone-600">Entrada</span>
                   <input
-                    type="checkbox"
-                    checked={editLateApproved}
-                    onChange={(e) => setEditLateApproved(e.target.checked)}
-                    className="h-4 w-4 accent-teal-600"
+                    type="date"
+                    required
+                    min={canRetroactive ? undefined : todayIso}
+                    value={editArrival}
+                    onChange={(e) => setEditArrival(e.target.value)}
+                    className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 tabular-nums"
                   />
-                  Aprovar Late Check-out (autorizado pela receção)
+                </label>
+                <label className="block">
+                  <span className="text-stone-600">Saída</span>
+                  <input
+                    type="date"
+                    required
+                    min={addDaysIso(editArrival || todayIso, 1)}
+                    value={editDeparture}
+                    onChange={(e) => setEditDeparture(e.target.value)}
+                    className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 tabular-nums"
+                  />
                 </label>
               </div>
-              <div className="flex justify-end gap-2 border-t border-sand-200 bg-white px-6 py-4">
-                <Button type="button" variant="secondary" onClick={() => setEditing(null)}>
-                  Cancelar
-                </Button>
-                <Button type="submit" disabled={pending}>
-                  {pending ? "A guardar…" : "Guardar alterações"}
-                </Button>
-              </div>
-            </form>
+            ) : null}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="text-stone-600">Hora de check-in</span>
+                <input
+                  type="time"
+                  value={editCheckIn}
+                  onChange={(e) => setEditCheckIn(e.target.value)}
+                  className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 font-mono"
+                />
+              </label>
+              <label className="block">
+                <span className="text-stone-600">Hora de check-out</span>
+                <input
+                  type="time"
+                  value={editCheckOut}
+                  onChange={(e) => setEditCheckOut(e.target.value)}
+                  className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 font-mono"
+                />
+              </label>
+            </div>
+            <label className="flex items-center gap-2 pt-1 text-ink-900">
+              <input
+                type="checkbox"
+                checked={editLateApproved}
+                onChange={(e) => setEditLateApproved(e.target.checked)}
+                className="h-4 w-4 accent-teal-600"
+              />
+              Aprovar Late Check-out (autorizado pela receção)
+            </label>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </FormDrawer>
     </div>
   );
 }

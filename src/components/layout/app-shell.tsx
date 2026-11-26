@@ -76,7 +76,7 @@ export async function AppShell({
           </div>
         ) : null}
         <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3.5 py-5 sm:px-6 lg:px-8 lg:py-7">
-          <div className="mx-auto w-full max-w-[1440px] animate-fade-up">{children}</div>
+          <div className="mx-auto w-full max-w-[1440px] animate-fade-in">{children}</div>
         </main>
       </div>
     </div>

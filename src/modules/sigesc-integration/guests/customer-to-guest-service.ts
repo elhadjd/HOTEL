@@ -131,8 +131,16 @@ export async function convertCustomerToGuest(
     const guest = await createGuest(prisma, ctx, {
       firstName,
       lastName,
+      customerType: customer.customer_type ?? "individual",
+      nif: customer.nif ?? undefined,
       email: customer.email ?? undefined,
       phone: customer.phone ?? undefined,
+      address: customer.address ?? undefined,
+      city: customer.city ?? undefined,
+      province: customer.province ?? undefined,
+      country: customer.country?.name ?? undefined,
+      birthDate: customer.birth_date ?? undefined,
+      gender: customer.sex ?? undefined,
       centralCustomerId: customer.id,
     });
 

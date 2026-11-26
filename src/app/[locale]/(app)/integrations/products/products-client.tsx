@@ -14,9 +14,9 @@ import {
   Search,
   Sparkles,
   Trash2,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FormDrawer } from "@/components/ui/form-drawer";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 
 type Product = {
@@ -896,55 +896,84 @@ export function ProductsClient({
             type="button"
             variant="secondary"
             size="sm"
-            onClick={() => setShowCustomMapping((v) => !v)}
+            onClick={() => setShowCustomMapping(true)}
             className="gap-1.5"
           >
             <Layers className="h-4 w-4" />
-            {showCustomMapping ? "Fechar mapeamento avançado" : "Mapear código especial (ex. alojamento)"}
+            Mapear código especial (ex. alojamento)
           </Button>
         </div>
 
-        {showCustomMapping ? (
-          <form
-            onSubmit={saveCustomMapping}
-            className="surface-muted mt-4 grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-5"
-          >
-            <input
-              required
-              value={localCode}
-              onChange={(e) => setLocalCode(e.target.value)}
-              placeholder="Código local (ex. accommodation)"
-              className="h-10 rounded-md border border-sand-200 bg-white px-3 text-sm"
-            />
-            <input
-              required
-              value={localLabel}
-              onChange={(e) => setLocalLabel(e.target.value)}
-              placeholder="Etiqueta local"
-              className="h-10 rounded-md border border-sand-200 bg-white px-3 text-sm"
-            />
-            <select
-              value={mappingKind}
-              onChange={(e) => setMappingKind(e.target.value as "SERVICE" | "PRODUCT")}
-              className="h-10 rounded-md border border-sand-200 bg-white px-3 text-sm"
-            >
-              <option value="SERVICE">Serviço</option>
-              <option value="PRODUCT">Produto</option>
-            </select>
-            <SearchableSelect
-              options={productOptions}
-              value={centralProductId}
-              onChange={setCentralProductId}
-              labels={{
-                placeholder: "Produto central…",
-                searchPlaceholder: "Pesquisar…",
-              }}
-            />
-            <Button type="submit" disabled={pending || !centralProductId}>
-              Guardar ligação
-            </Button>
-          </form>
-        ) : null}
+        <FormDrawer
+          open={showCustomMapping}
+          onClose={() => setShowCustomMapping(false)}
+          eyebrow="Catálogo do Hotel"
+          title="Mapear código especial"
+          subtitle="Associe um código operacional interno (ex.: accommodation) a um item oficial do sistema central."
+          size="md"
+          onSubmit={saveCustomMapping}
+          footer={
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowCustomMapping(false)}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={pending || !centralProductId}>
+                {pending ? "A guardar…" : "Guardar ligação"}
+              </Button>
+            </div>
+          }
+        >
+          <div className="surface space-y-4 p-4 text-sm">
+            <label className="block">
+              <span className="text-stone-600">Código local *</span>
+              <input
+                required
+                value={localCode}
+                onChange={(e) => setLocalCode(e.target.value)}
+                placeholder="Ex.: accommodation"
+                className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 font-mono text-sm"
+              />
+            </label>
+            <label className="block">
+              <span className="text-stone-600">Etiqueta local *</span>
+              <input
+                required
+                value={localLabel}
+                onChange={(e) => setLocalLabel(e.target.value)}
+                placeholder="Ex.: Alojamento (Noite)"
+                className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm"
+              />
+            </label>
+            <label className="block">
+              <span className="text-stone-600">Tipo</span>
+              <select
+                value={mappingKind}
+                onChange={(e) => setMappingKind(e.target.value as "SERVICE" | "PRODUCT")}
+                className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3 text-sm"
+              >
+                <option value="SERVICE">Serviço</option>
+                <option value="PRODUCT">Produto</option>
+              </select>
+            </label>
+            <div className="block">
+              <span className="text-stone-600">Item do Sistema Central *</span>
+              <SearchableSelect
+                className="mt-1"
+                options={productOptions}
+                value={centralProductId}
+                onChange={setCentralProductId}
+                labels={{
+                  placeholder: "Seleccionar produto central…",
+                  searchPlaceholder: "Pesquisar por nome ou SKU…",
+                }}
+              />
+            </div>
+          </div>
+        </FormDrawer>
 
         <div className="mt-4 space-y-2.5 md:hidden">
           {mappings.length === 0 ? (
@@ -1072,41 +1101,55 @@ export function ProductsClient({
       </div>
 
       {/* Full Central Product / Service Create & Edit Drawer */}
-      {drawerMode !== "closed" ? (
-        <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-ink-950/45">
-          <button
-            type="button"
-            className="absolute inset-0 cursor-default"
-            aria-label="Fechar"
-            onClick={() => setDrawerMode("closed")}
-          />
-          <div className="relative flex h-full w-full max-w-2xl flex-col bg-sand-50 shadow-2xl animate-fade-up">
-            <div className="flex items-center justify-between border-b border-sand-200 bg-white px-6 py-4">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">
-                  Catálogo do Sistema Central
-                </p>
-                <h3 className="text-xl font-semibold text-ink-900">
-                  {drawerMode === "create"
-                    ? "Criar novo produto ou serviço"
-                    : `Editar item #${editingId}`}
-                </h3>
-              </div>
+      <FormDrawer
+        open={drawerMode !== "closed"}
+        onClose={() => setDrawerMode("closed")}
+        eyebrow="Catálogo do Sistema Central"
+        title={
+          drawerMode === "create"
+            ? "Criar novo produto ou serviço"
+            : `Editar item #${editingId}`
+        }
+        subtitle="Preencha os campos fiscais, preços e operação — os botões de acção ficam sempre visíveis."
+        size="lg"
+        onSubmit={submitDrawer}
+        footer={
+          <div className="space-y-3">
+            {drawerMode === "create" ? (
+              <label className="flex items-center gap-2 text-sm text-ink-900">
+                <input
+                  type="checkbox"
+                  checked={form.importToHotel}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, importToHotel: e.target.checked }))
+                  }
+                  className="h-4 w-4 accent-teal-600"
+                />
+                Disponibilizar imediatamente nos selects do hotel após criar
+              </label>
+            ) : null}
+            <div className="flex justify-end gap-2">
               <Button
                 type="button"
-                variant="ghost"
-                size="icon"
+                variant="secondary"
                 onClick={() => setDrawerMode("closed")}
-                aria-label="Fechar"
               >
-                <X className="h-4 w-4" />
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={pending}>
+                {pending
+                  ? "A guardar…"
+                  : drawerMode === "create"
+                    ? "Criar no servidor central"
+                    : "Guardar alterações"}
               </Button>
             </div>
-
-            <form onSubmit={submitDrawer} className="flex min-h-0 flex-1 flex-col">
-              <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
-                {/* Section 1: Identification */}
-                <section className="surface space-y-4 p-4">
+          </div>
+        }
+      >
+        <div className="space-y-6">
+          {/* Section 1: Identification */}
+          <section className="surface space-y-4 p-4">
                   <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-teal-700">
                     1. Identificação
                   </h4>
@@ -1416,43 +1459,8 @@ export function ProductsClient({
                     ) : null}
                   </div>
                 </section>
-              </div>
-
-              <div className="space-y-3 border-t border-sand-200 bg-white px-6 py-4">
-                {drawerMode === "create" ? (
-                  <label className="flex items-center gap-2 text-sm text-ink-900">
-                    <input
-                      type="checkbox"
-                      checked={form.importToHotel}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, importToHotel: e.target.checked }))
-                      }
-                      className="h-4 w-4 accent-teal-600"
-                    />
-                    Disponibilizar imediatamente nos selects do hotel após criar
-                  </label>
-                ) : null}
-                <div className="flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => setDrawerMode("closed")}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button type="submit" disabled={pending}>
-                    {pending
-                      ? "A guardar…"
-                      : drawerMode === "create"
-                        ? "Criar no servidor central"
-                        : "Guardar alterações"}
-                  </Button>
-                </div>
-              </div>
-            </form>
-          </div>
         </div>
-      ) : null}
+      </FormDrawer>
     </div>
   );
 }

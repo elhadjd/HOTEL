@@ -21,9 +21,13 @@ const updateSchema = z
     country_id: z.number().int().positive().optional().nullable(),
     customer_code: z.string().max(64).optional().nullable(),
     customer_type: z.string().max(64).optional().nullable(),
+    sponsor_code: z.string().max(64).optional().nullable(),
+    sponsor_id: z.number().int().positive().optional().nullable(),
     credit_limit: z.number().nonnegative().optional().nullable(),
+    terms_payment_id: z.number().int().positive().optional().nullable(),
     birth_date: z.string().max(32).optional().nullable(),
     sex: z.string().max(32).optional().nullable(),
+    reference: z.string().max(120).optional().nullable(),
     status: z.union([z.boolean(), z.string()]).optional(),
   })
   .strict();

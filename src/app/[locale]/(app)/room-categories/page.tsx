@@ -1,6 +1,5 @@
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { AppShell } from "@/components/layout/app-shell";
-import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { prisma } from "@/server/db";
 import { requirePageTenant } from "@/server/page-auth";
@@ -38,55 +37,63 @@ export default async function RoomCategoriesPage({
 
   return (
     <AppShell title={t("nav.roomCategories")}>
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div className="font-ui flex flex-wrap gap-2 text-sm">
-          {hotels.map((h) => (
-            <a
-              key={h.id}
-              href={`?hotelId=${h.id}`}
-              className={
-                h.id === hotelId
-                  ? "rounded-md bg-ink-900 px-3 py-1.5 text-white"
-                  : "rounded-md border border-sand-200 bg-white px-3 py-1.5 text-stone-600"
-              }
-            >
-              {h.name}
-            </a>
-          ))}
-        </div>
-        <Badge tone="accent">Phase 3</Badge>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <div className="space-y-3">
-          {categories.length === 0 ? (
-            <EmptyState title={t("nav.roomCategories")} description="Sem categorias." />
-          ) : (
-            categories.map((cat) => (
-              <article key={cat.id} className="surface p-5">
-                <div className="flex justify-between gap-3">
-                  <div>
-                    <p className="font-ui text-xs uppercase tracking-[0.16em] text-stone-400">
-                      {cat.code}
-                    </p>
-                    <h2 className="mt-1 text-xl font-semibold text-ink-900">{cat.name}</h2>
-                    <p className="font-ui mt-1 text-sm text-stone-500">
-                      Até {cat.maxOccupancy} hóspedes · {cat.maxAdults} adultos ·{" "}
-                      {cat.maxChildren} crianças
-                    </p>
-                  </div>
-                  <p className="font-ui text-sm text-stone-500">{cat._count.rooms} quartos</p>
-                </div>
-                {cat.defaultTariff != null ? (
-                  <p className="font-ui mt-3 text-sm text-teal-800">
-                    Tarifa operacional: {String(cat.defaultTariff)}
-                  </p>
-                ) : null}
-              </article>
-            ))
-          )}
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="font-ui text-sm text-stone-500">
+            Tipologias de alojamento, capacidade e tarifas operacionais.
+          </p>
+          {hotels.length > 1 ? (
+            <div className="font-ui mt-3 flex flex-wrap gap-2 text-sm">
+              {hotels.map((h) => (
+                <a
+                  key={h.id}
+                  href={`?hotelId=${h.id}`}
+                  className={
+                    h.id === hotelId
+                      ? "rounded-md bg-ink-900 px-3 py-1.5 text-white"
+                      : "rounded-md border border-sand-200 bg-white px-3 py-1.5 text-stone-600"
+                  }
+                >
+                  {h.name}
+                </a>
+              ))}
+            </div>
+          ) : null}
         </div>
         <CreateCategoryForm hotelId={hotelId} />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {categories.length === 0 ? (
+          <div className="sm:col-span-2 lg:col-span-3">
+            <EmptyState title={t("nav.roomCategories")} description="Sem categorias." />
+          </div>
+        ) : (
+          categories.map((cat) => (
+            <article key={cat.id} className="surface-interactive p-5">
+              <div className="flex justify-between gap-3">
+                <div>
+                  <p className="font-mono text-xs uppercase tracking-[0.14em] text-stone-400">
+                    {cat.code}
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold text-ink-900">{cat.name}</h2>
+                  <p className="font-ui mt-1 text-sm text-stone-500">
+                    Até {cat.maxOccupancy} hóspedes · {cat.maxAdults} adultos · {cat.maxChildren}{" "}
+                    crianças
+                  </p>
+                </div>
+                <span className="h-fit rounded-full bg-sand-100 px-2.5 py-0.5 text-xs font-medium text-stone-700">
+                  {cat._count.rooms} quartos
+                </span>
+              </div>
+              {cat.defaultTariff != null ? (
+                <p className="font-ui mt-3 text-sm font-medium text-teal-800">
+                  Tarifa operacional: {String(cat.defaultTariff)}
+                </p>
+              ) : null}
+            </article>
+          ))
+        )}
       </div>
     </AppShell>
   );

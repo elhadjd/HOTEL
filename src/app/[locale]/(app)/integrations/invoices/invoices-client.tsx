@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Plus, RefreshCw, Send, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, RefreshCw, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FormDrawer } from "@/components/ui/form-drawer";
 import { StatusPill } from "@/components/ui/status-pill";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -733,233 +734,214 @@ export function InvoicesClient({
         )}
       </div>
 
-      {createOpen ? (
-        <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-ink-950/45">
-          <button
-            type="button"
-            className="absolute inset-0 cursor-default"
-            aria-label="Fechar"
-            onClick={() => setCreateOpen(false)}
-          />
-          <div className="relative flex h-full w-full max-w-xl flex-col bg-sand-50 shadow-2xl animate-fade-up">
-            <div className="flex items-center justify-between border-b border-sand-200 px-5 py-4">
-              <div>
-                <p className="font-ui text-[11px] uppercase tracking-[0.18em] text-stone-400">
-                  Novo documento
-                </p>
-                <h3 className="text-xl font-semibold text-ink-900">Cotação / Proforma</h3>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => setCreateOpen(false)}
-                aria-label="Fechar"
-              >
-                <X className="h-4 w-4" />
+      <FormDrawer
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        eyebrow="Novo documento"
+        title="Cotação / Proforma"
+        subtitle="Crie o documento localmente ou emita directamente no sistema central."
+        size="lg"
+        onSubmit={createDraft}
+        footer={
+          <div className="space-y-3">
+            <label className="font-ui flex items-center gap-2 text-sm text-ink-900">
+              <input
+                type="checkbox"
+                checked={submitNow}
+                onChange={(e) => setSubmitNow(e.target.checked)}
+                className="h-4 w-4 accent-teal-600"
+              />
+              Enviar imediatamente para o sistema central após criar
+            </label>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={() => setCreateOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={pending || mappingOptions.length === 0}>
+                {pending
+                  ? "A processar…"
+                  : submitNow
+                    ? "Criar e emitir no sistema central"
+                    : "Criar rascunho local"}
               </Button>
             </div>
-
-            <form onSubmit={createDraft} className="flex min-h-0 flex-1 flex-col">
-              <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
-                <section className="space-y-3">
-                  <h4 className="font-ui text-xs font-semibold uppercase tracking-[0.16em] text-stone-400">
-                    A — Cliente e contexto
-                  </h4>
-                  <div className="block text-sm">
-                    <span className="text-stone-500">Hóspede (cliente central ligado)</span>
-                    <SearchableSelect
-                      className="mt-1"
-                      options={guests}
-                      value={guestId}
-                      onChange={setGuestId}
-                      onSearch={searchGuests}
-                      labels={{
-                        placeholder: "Seleccionar hóspede",
-                        searchPlaceholder: "Nome, email, telefone…",
-                        refineSearch: "Mais resultados existem — refine a pesquisa.",
-                      }}
-                    />
-                  </div>
-                  <div className="block text-sm">
-                    <span className="text-stone-500">Estadia activa</span>
-                    <SearchableSelect
-                      className="mt-1"
-                      options={stays}
-                      value={stayId}
-                      onChange={setStayId}
-                      labels={{ placeholder: "Opcional", searchPlaceholder: "Estadia…" }}
-                    />
-                  </div>
-                  <div className="block text-sm">
-                    <span className="text-stone-500">Reserva</span>
-                    <SearchableSelect
-                      className="mt-1"
-                      options={reservations}
-                      value={reservationId}
-                      onChange={setReservationId}
-                      labels={{ placeholder: "Opcional", searchPlaceholder: "Código…" }}
-                    />
-                  </div>
-                  <label className="block text-sm">
-                    <span className="text-stone-500">Tipo de documento</span>
-                    <select
-                      value={state}
-                      onChange={(e) => setState(e.target.value)}
-                      className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
-                    >
-                      <option value="Cotação">Cotação</option>
-                      <option value="Proforma">Proforma</option>
-                    </select>
-                  </label>
-                  <label className="block text-sm">
-                    <span className="text-stone-500">Notas</span>
-                    <input
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
-                    />
-                  </label>
-                </section>
-
-                <section className="space-y-3">
-                  <h4 className="font-ui text-xs font-semibold uppercase tracking-[0.16em] text-stone-400">
-                    B — Produtos centrais
-                  </h4>
-                  <div className="flex gap-2">
-                    <SearchableSelect
-                      className="flex-1"
-                      options={mappingOptions}
-                      value={productPick}
-                      onChange={setProductPick}
-                      onSearch={searchMappings}
-                      labels={{
-                        placeholder: "Pesquisar produto / SKU",
-                        searchPlaceholder: "Nome, código, SKU…",
-                        empty: "Configure mapeamentos de catálogo",
-                        refineSearch: "Catálogo grande — refine a pesquisa no servidor.",
-                      }}
-                    />
-                    <Button type="button" variant="secondary" onClick={addProductLine}>
-                      Adicionar
-                    </Button>
-                  </div>
-                  <div className="space-y-2">
-                    {lines.length === 0 ? (
-                      <p className="text-sm text-stone-500">Nenhuma linha ainda.</p>
-                    ) : (
-                      lines.map((line) => (
-                        <div key={line.key} className="surface-muted p-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="font-medium text-ink-900">{line.label}</p>
-                              <p className="text-xs text-stone-500">
-                                Preço central ref.: {money(line.unitPriceHint)}
-                              </p>
-                            </div>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              onClick={() =>
-                                setLines((prev) => prev.filter((l) => l.key !== line.key))
-                              }
-                            >
-                              Remover
-                            </Button>
-                          </div>
-                          <div className="mt-2 grid grid-cols-2 gap-2">
-                            <label className="block text-xs">
-                              Quantidade
-                              <input
-                                type="number"
-                                min="0.001"
-                                step="any"
-                                value={line.quantity}
-                                onChange={(e) =>
-                                  setLines((prev) =>
-                                    prev.map((l) =>
-                                      l.key === line.key ? { ...l, quantity: e.target.value } : l,
-                                    ),
-                                  )
-                                }
-                                className="mt-1 h-9 w-full rounded-md border border-sand-200 bg-white px-2"
-                              />
-                            </label>
-                            <label className="block text-xs">
-                              Desconto (linha)
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={line.discount}
-                                onChange={(e) =>
-                                  setLines((prev) =>
-                                    prev.map((l) =>
-                                      l.key === line.key ? { ...l, discount: e.target.value } : l,
-                                    ),
-                                  )
-                                }
-                                className="mt-1 h-9 w-full rounded-md border border-sand-200 bg-white px-2"
-                              />
-                            </label>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </section>
-
-                <section className="surface p-4">
-                  <h4 className="font-ui text-xs font-semibold uppercase tracking-[0.16em] text-stone-400">
-                    D — Resumo (estimativa local)
-                  </h4>
-                  <p className="font-ui mt-1 text-xs text-stone-500">
-                    Totais oficiais só após submissão — esta estimativa usa preços centrais
-                    verificados em cache do mapeamento e nunca substitui a resposta Aggregate.
-                  </p>
-                  <dl className="font-ui mt-3 space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <dt>Subtotal</dt>
-                      <dd>{money(liveTotals.subtotal)}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt>Descontos</dt>
-                      <dd>{money(liveTotals.discount)}</dd>
-                    </div>
-                    <div className="flex justify-between font-semibold text-ink-900">
-                      <dt>Total estimado</dt>
-                      <dd>{money(liveTotals.total)}</dd>
-                    </div>
-                  </dl>
-                </section>
-              </div>
-
-              <div className="space-y-3 border-t border-sand-200 bg-white px-5 py-4">
-                <label className="font-ui flex items-center gap-2 text-sm text-ink-900">
-                  <input
-                    type="checkbox"
-                    checked={submitNow}
-                    onChange={(e) => setSubmitNow(e.target.checked)}
-                  />
-                  Enviar imediatamente para o sistema central após criar
-                </label>
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={pending || mappingOptions.length === 0}
-                >
-                  {pending
-                    ? "A processar…"
-                    : submitNow
-                      ? "Criar e emitir no sistema central"
-                      : "Criar rascunho local"}
-                </Button>
-              </div>
-            </form>
           </div>
+        }
+      >
+        <div className="space-y-6">
+          <section className="surface space-y-3 p-4">
+            <h4 className="font-ui text-xs font-semibold uppercase tracking-[0.16em] text-stone-400">
+              A — Cliente e contexto
+            </h4>
+            <div className="block text-sm">
+              <span className="text-stone-500">Hóspede (cliente central ligado)</span>
+              <SearchableSelect
+                className="mt-1"
+                options={guests}
+                value={guestId}
+                onChange={setGuestId}
+                onSearch={searchGuests}
+                labels={{
+                  placeholder: "Seleccionar hóspede",
+                  searchPlaceholder: "Nome, email, telefone…",
+                  refineSearch: "Mais resultados existem — refine a pesquisa.",
+                }}
+              />
+            </div>
+            <div className="block text-sm">
+              <span className="text-stone-500">Estadia activa</span>
+              <SearchableSelect
+                className="mt-1"
+                options={stays}
+                value={stayId}
+                onChange={setStayId}
+                labels={{ placeholder: "Opcional", searchPlaceholder: "Estadia…" }}
+              />
+            </div>
+            <div className="block text-sm">
+              <span className="text-stone-500">Reserva</span>
+              <SearchableSelect
+                className="mt-1"
+                options={reservations}
+                value={reservationId}
+                onChange={setReservationId}
+                labels={{ placeholder: "Opcional", searchPlaceholder: "Código…" }}
+              />
+            </div>
+            <label className="block text-sm">
+              <span className="text-stone-500">Tipo de documento</span>
+              <select
+                value={state}
+                onChange={(e) => setState(e.target.value)}
+                className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
+              >
+                <option value="Cotação">Cotação</option>
+                <option value="Proforma">Proforma</option>
+              </select>
+            </label>
+            <label className="block text-sm">
+              <span className="text-stone-500">Notas</span>
+              <input
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="mt-1 h-10 w-full rounded-md border border-sand-200 bg-white px-3"
+              />
+            </label>
+          </section>
+
+          <section className="surface space-y-3 p-4">
+            <h4 className="font-ui text-xs font-semibold uppercase tracking-[0.16em] text-stone-400">
+              B — Produtos centrais
+            </h4>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <SearchableSelect
+                className="flex-1"
+                options={mappingOptions}
+                value={productPick}
+                onChange={setProductPick}
+                onSearch={searchMappings}
+                labels={{
+                  placeholder: "Pesquisar produto / SKU",
+                  searchPlaceholder: "Nome, código, SKU…",
+                  empty: "Configure mapeamentos de catálogo",
+                  refineSearch: "Catálogo grande — refine a pesquisa no servidor.",
+                }}
+              />
+              <Button type="button" variant="secondary" onClick={addProductLine}>
+                Adicionar
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {lines.length === 0 ? (
+                <p className="text-sm text-stone-500">Nenhuma linha ainda.</p>
+              ) : (
+                lines.map((line) => (
+                  <div key={line.key} className="surface-muted p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-ink-900">{line.label}</p>
+                        <p className="text-xs text-stone-500">
+                          Preço central ref.: {money(line.unitPriceHint)}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          setLines((prev) => prev.filter((l) => l.key !== line.key))
+                        }
+                      >
+                        Remover
+                      </Button>
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <label className="block text-xs">
+                        Quantidade
+                        <input
+                          type="number"
+                          min="0.001"
+                          step="any"
+                          value={line.quantity}
+                          onChange={(e) =>
+                            setLines((prev) =>
+                              prev.map((l) =>
+                                l.key === line.key ? { ...l, quantity: e.target.value } : l,
+                              ),
+                            )
+                          }
+                          className="mt-1 h-9 w-full rounded-md border border-sand-200 bg-white px-2"
+                        />
+                      </label>
+                      <label className="block text-xs">
+                        Desconto (linha)
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={line.discount}
+                          onChange={(e) =>
+                            setLines((prev) =>
+                              prev.map((l) =>
+                                l.key === line.key ? { ...l, discount: e.target.value } : l,
+                              ),
+                            )
+                          }
+                          className="mt-1 h-9 w-full rounded-md border border-sand-200 bg-white px-2"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="surface p-4">
+            <h4 className="font-ui text-xs font-semibold uppercase tracking-[0.16em] text-stone-400">
+              C — Resumo (estimativa local)
+            </h4>
+            <p className="font-ui mt-1 text-xs text-stone-500">
+              Totais oficiais só após submissão — esta estimativa usa preços centrais verificados
+              em cache e nunca substitui a resposta oficial do sistema central.
+            </p>
+            <dl className="font-ui mt-3 space-y-1 text-sm">
+              <div className="flex justify-between">
+                <dt>Subtotal</dt>
+                <dd>{money(liveTotals.subtotal)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Descontos</dt>
+                <dd>{money(liveTotals.discount)}</dd>
+              </div>
+              <div className="flex justify-between font-semibold text-ink-900">
+                <dt>Total estimado</dt>
+                <dd>{money(liveTotals.total)}</dd>
+              </div>
+            </dl>
+          </section>
         </div>
-      ) : null}
+      </FormDrawer>
     </div>
   );
 }

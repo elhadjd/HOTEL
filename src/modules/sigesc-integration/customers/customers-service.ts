@@ -184,9 +184,11 @@ export async function createCentralCustomerFromGuest(
     throw new Error("Guest is already linked to a central customer");
   }
 
-  const nif = guest.documents.find((d) => /nif|tax/i.test(d.type))?.reference
-    ?? guest.documents[0]?.reference
-    ?? null;
+  const nif =
+    guest.nif ??
+    guest.documents.find((d) => /nif|tax/i.test(d.type))?.reference ??
+    guest.documents[0]?.reference ??
+    null;
 
   // Search for possible matches before create (unless force)
   if (!opts?.forceCreate) {
@@ -206,9 +208,15 @@ export async function createCentralCustomerFromGuest(
   const result = await createCentralCustomer(prisma, ctx, {
     name: guest.firstName,
     surname: guest.lastName,
+    customer_type: guest.customerType || "individual",
     email: guest.email,
     phone: guest.phone,
     nif,
+    address: guest.address,
+    city: guest.city,
+    province: guest.province,
+    birth_date: guest.birthDate ? guest.birthDate.toISOString().slice(0, 10) : null,
+    sex: guest.gender,
   });
 
   const mapping = await linkGuestToCentralCustomer(prisma, ctx, guestId, result.customer.id);
